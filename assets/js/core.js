@@ -163,7 +163,7 @@ const photoBooth = (function () {
                 videoSensor.get(0).width = previewVideo.get(0).videoWidth;
                 videoSensor.get(0).height = previewVideo.get(0).videoHeight;
                 videoSensor.get(0).getContext('2d').drawImage(previewVideo.get(0), 0, 0);
-            }
+            }   
         }
         if (!config.commands.preview_kill || config.preview.camTakesPic) {
             photoboothTools.console.logDev('Preview: core: stopping preview from stopPreviewAndCaptureFromVideo.');
@@ -418,7 +418,7 @@ const photoBooth = (function () {
             return;
         }
 
-        if (config.selfie_mode) {
+        if (config.selfie_user) {
             photoboothTools.console.logDev('ERROR: Taking picture unsupported on selfie mode!');
 
             return;
@@ -1475,7 +1475,7 @@ const photoBooth = (function () {
             }
         }
 
-        if (config.selfie_mode) {
+        if (config.selfie_user) {
             return;
         }
 
