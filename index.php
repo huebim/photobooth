@@ -31,9 +31,18 @@ if (
     $photoswipe = true;
     $randomImage = false;
     $remoteBuzzer = true;
+    $config['ui']['selfie_user'] = false;
 } else {
-    header('location: ' . $config['protect']['index_redirect']);
-    exit();
+    if ($config['ui']['selfie_mode']) {
+        $pageTitle = ApplicationService::getInstance()->getTitle();
+        $photoswipe = true;
+        $randomImage = false;
+        $remoteBuzzer = false;
+        $config['ui']['selfie_user'] = true;
+    } else {
+        header('location: ' . $config['protect']['index_redirect']);
+        exit();
+    }
 }
 
 include PathUtility::getAbsolutePath('template/components/main.head.php');
@@ -60,7 +69,7 @@ include PathUtility::getAbsolutePath('template/components/main.head.php');
 <?php
 
 include PathUtility::getAbsolutePath('template/components/stage.start.php');
-if (!$config['ui']['selfie_mode']) {
+if (!$config['ui']['selfie_user']) {
     include PathUtility::getAbsolutePath('template/components/stage.loader.php');
     include PathUtility::getAbsolutePath('template/components/stage.results.php');
 }
@@ -69,13 +78,13 @@ if ($config['gallery']['enabled']) {
     include PathUtility::getAbsolutePath('template/components/gallery.php');
 }
 
-if ($config['filters']['enabled'] && !$config['ui']['selfie_mode']) {
+if ($config['filters']['enabled'] && !$config['ui']['selfie_user']) {
     include PathUtility::getAbsolutePath('template/components/filter.php');
 }
 
 include PathUtility::getAbsolutePath('template/components/main.footer.php');
 
-if ($config['ui']['selfie_mode']) {
+if ($config['ui']['selfie_user']) {
     echo '<script src="' . $assetService->getUrl('resources/js/selfie.js') . '"></script>';
 }
 ?>
