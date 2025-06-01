@@ -23,10 +23,6 @@ class PathUtility
             return '';
         }
 
-        if (self::isUrl($path)) {
-            return $path;
-        }
-
         $documentRoot = self::getRootPath();
         $path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path);
 
@@ -69,7 +65,7 @@ class PathUtility
 
         $path = self::fixFilePath(self::getBaseUrl() . $path);
         if ($absolute) {
-            $path = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off' ? 'https' : 'http') . '://' . $_SERVER['SERVER_NAME'] . $path;
+            $path = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] != 'off' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $path;
         }
 
         return $path;
@@ -85,5 +81,28 @@ class PathUtility
     public static function fixFilePath(string $path): string
     {
         return str_replace(['\\', '//'], '/', $path);
+    }
+
+    public static function resolveFilePath(string $filePath): string
+    {
+        if (self::isUrl($filePath)) {
+            return $filePath;
+        }
+
+        $absolutePath = self::isAbsolutePath($filePath) ? $filePath : self::getAbsolutePath($filePath);
+        if (file_exists($absolutePath)) {
+            return $absolutePath;
+        }
+
+        $altPath1 = $_SERVER['DOCUMENT_ROOT'] . $filePath;
+        $altPath2 = $_SERVER['DOCUMENT_ROOT'] . '/' . $filePath;
+
+        if (file_exists($altPath1)) {
+            return $altPath1;
+        } elseif (file_exists($altPath2)) {
+            return $altPath2;
+        }
+
+        throw new \Exception('File not found: ' . $filePath);
     }
 }

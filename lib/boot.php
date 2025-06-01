@@ -10,6 +10,7 @@ use Photobooth\Service\LoggerService;
 use Photobooth\Service\MailService;
 use Photobooth\Service\PrintManagerService;
 use Photobooth\Service\ProcessService;
+use Photobooth\Service\RemoteStorageService;
 use Photobooth\Service\SoundService;
 use Photobooth\Utility\FileUtility;
 use Photobooth\Utility\PathUtility;
@@ -32,6 +33,7 @@ FileUtility::createDirectory(FolderEnum::PRIVATE->absolute());
 FileUtility::createDirectory(PathUtility::getAbsolutePath('private/fonts'));
 FileUtility::createDirectory(PathUtility::getAbsolutePath('private/images/background'));
 FileUtility::createDirectory(PathUtility::getAbsolutePath('private/images/frames'));
+FileUtility::createDirectory(PathUtility::getAbsolutePath('private/images/keyingBackgrounds'));
 FileUtility::createDirectory(PathUtility::getAbsolutePath('private/images/logo'));
 FileUtility::createDirectory(PathUtility::getAbsolutePath('private/images/placeholder'));
 FileUtility::createDirectory(PathUtility::getAbsolutePath('private/images/cheese'));
@@ -75,6 +77,7 @@ $GLOBALS[PrintManagerService::class] = new PrintManagerService();
 $GLOBALS[DatabaseManagerService::class] = new DatabaseManagerService();
 $GLOBALS[MailService::class] = new MailService();
 $GLOBALS[ProcessService::class] = new ProcessService();
+$GLOBALS[RemoteStorageService::class] = new RemoteStorageService();
 
 $config = ConfigurationService::getInstance()->getConfiguration();
 if ($config['dev']['loglevel'] > 0) {
@@ -82,3 +85,5 @@ if ($config['dev']['loglevel'] > 0) {
     ini_set('display_startup_errors', 1);
     error_reporting(E_ALL);
 }
+
+date_default_timezone_set((string)$config['ui']['local_timezone']->value);

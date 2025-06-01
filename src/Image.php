@@ -312,6 +312,46 @@ class Image
     }
 
     /**
+     * Parses a hex color string and returns its RGBA components.
+     *
+     * @param string $hexColor The hex color string to parse.
+     * @return array An array containing the red, green, blue, and alpha components.
+     * @throws \Exception If the color string is invalid or parsing fails.
+     */
+    public static function getColorComponents(string $hexColor): array
+    {
+        try {
+            if (strlen($hexColor) < 3) {
+                throw new \Exception('Invalid color: too short.');
+            }
+
+            if (strlen($hexColor) > 9) {
+                throw new \Exception('Invalid color: too long.');
+            }
+
+            if ($hexColor[0] !== '#') {
+                throw new \Exception('Color HEX must start with "#".');
+            }
+
+            while (strlen($hexColor) < 9) {
+                $hexColor .= '0';
+            }
+
+            $colorComponents = sscanf($hexColor, '#%02x%02x%02x%02x');
+
+            if ($colorComponents !== null) {
+                list($r, $g, $b, $a) = $colorComponents;
+                return [$r, $g, $b, $a];
+            } else {
+                throw new \Exception('Color parsing failed: sscanf returned null.');
+            }
+        } catch (\Exception $e) {
+
+            return [0, 0, 0, 0];
+        }
+    }
+
+    /**
      * Creates a GD image resource from an image file.
      */
     public function createFromImage(string $image): GdImage|false
@@ -321,8 +361,10 @@ class Image
                 parse_str(parse_url($image)['query'] ?? '', $query);
                 $path = is_array($query['dir']) ? $query['dir']['0'] : $query['dir'];
                 $image = ImageUtility::getRandomImageFromPath($path);
-            } elseif (PathUtility::isAbsolutePath(PathUtility::getAbsolutePath($image))) {
-                $image = PathUtility::getAbsolutePath($image);
+            }
+
+            if (!file_exists($image)) {
+                $image = PathUtility::resolveFilePath($image);
             }
 
             $resource = imagecreatefromstring((string)file_get_contents($image));
@@ -387,20 +429,8 @@ class Image
                     // Allocate a fully transparent background
                     $background = imagecolorallocatealpha($new, 0, 0, 0, 127);
                 } else {
-                    if (strlen($bgColor) === 7) {
-                        $bgColor .= '00';
-                    }
-                    $colorComponents = sscanf($bgColor, '#%02x%02x%02x%02x');
-                    if ($colorComponents !== null) {
-                        list($bg_r, $bg_g, $bg_b, $bg_a) = $colorComponents;
-                        $bg_r = intval($bg_r);
-                        $bg_g = intval($bg_g);
-                        $bg_b = intval($bg_b);
-                        $bg_a = intval($bg_a);
-
-                    } else {
-                        throw new \Exception('Background color: sscanf returned null!');
-                    }
+                    $colorComponents = self::getColorComponents($bgColor);
+                    list($bg_r, $bg_g, $bg_b, $bg_a) = $colorComponents;
                     // color background as defined
                     $background = imagecolorallocatealpha($new, $bg_r, $bg_g, $bg_b, $bg_a);
                 }
@@ -695,37 +725,37 @@ class Image
     public function applyText(GdImage $sourceResource): GdImage
     {
         try {
+            $fontPath = PathUtility::getAbsolutePath($this->fontPath);
+            $tempFontPath = $_SERVER['DOCUMENT_ROOT'] . '/tempfont.ttf';
+            $isTempFont = false;
             $fontSize = $this->fontSize;
             $fontRotation = $this->fontRotation;
             $fontLocationX = $this->fontLocationX;
             $fontLocationY = $this->fontLocationY;
-            $fontPath = PathUtility::getAbsolutePath($this->fontPath);
             $textLineSpacing = $this->textLineSpacing;
             // Convert hex color string to RGB values
-            $colorComponents = sscanf($this->fontColor, '#%02x%02x%02x');
-            if ($colorComponents !== null) {
-                list($r, $g, $b) = $colorComponents;
-            } else {
-                throw new \Exception('Font color: sscanf returned null!');
-            }
-            $r = intval($r);
-            $g = intval($g);
-            $b = intval($b);
+            $colorComponents = self::getColorComponents($this->fontColor);
+            list($r, $g, $b) = $colorComponents;
 
             // Allocate color and set font
             $color = intval(imagecolorallocate($sourceResource, $r, $g, $b));
 
-            $localFontPath = $fontPath;
-            $tempFontPath = $_SERVER['DOCUMENT_ROOT'] . '/tempfont.ttf';
-            if (PathUtility::isUrl($fontPath)) {
-                $font = file_get_contents($fontPath);
-                file_put_contents($tempFontPath, $font);
-                $localFontPath = $tempFontPath;
+            if (PathUtility::isUrl($this->fontPath)) {
+                $font = @file_get_contents($this->fontPath);
+
+                if ($font === false) {
+                    throw new \Exception('Failed to download font from: ' . $this->fontPath);
+                }
+                file_put_contents($tempFontPath, $this->fontPath);
+                $fontPath = $tempFontPath;
+                $isTempFont = true;
+            } else {
+                $fontPath = PathUtility::resolveFilePath($this->fontPath);
             }
 
             // Add first line of text
             if (!empty($this->textLine1)) {
-                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $fontLocationX, $fontLocationY, $color, $localFontPath, $this->textLine1)) {
+                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $fontLocationX, $fontLocationY, $color, $fontPath, $this->textLine1)) {
                     throw new \Exception('Could not add first line of text to resource.');
                 }
             }
@@ -734,7 +764,7 @@ class Image
             if (!empty($this->textLine2)) {
                 $line2Y = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationY + $textLineSpacing : $fontLocationY;
                 $line2X = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationX : $fontLocationX + $textLineSpacing;
-                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line2X, $line2Y, $color, $localFontPath, $this->textLine2)) {
+                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line2X, $line2Y, $color, $fontPath, $this->textLine2)) {
                     throw new \Exception('Could not add second line of text to resource.');
                 }
             }
@@ -743,13 +773,15 @@ class Image
             if (!empty($this->textLine3)) {
                 $line3Y = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationY + $textLineSpacing * 2 : $fontLocationY;
                 $line3X = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationX : $fontLocationX + $textLineSpacing * 2;
-                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line3X, $line3Y, $color, $localFontPath, $this->textLine3)) {
+                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line3X, $line3Y, $color, $fontPath, $this->textLine3)) {
                     throw new \Exception('Could not add third line of text to resource.');
                 }
             }
 
-            if ($localFontPath !== $fontPath) {
-                unlink($tempFontPath);
+            if ($isTempFont && file_exists($tempFontPath)) {
+                if (!unlink($tempFontPath)) {
+                    $this->addErrorData('Failed to delete tmp font: ' . $tempFontPath);
+                }
             }
             $this->imageModified = true;
             // Return resource with text applied
@@ -912,15 +944,8 @@ class Image
             if ($this->qrColor != '#ffffff') {
                 $qrwidth = imagesx($qrCodeImage);
                 $qrheight = imagesy($qrCodeImage);
-                $colorComponents = sscanf($this->qrColor, '#%02x%02x%02x');
-                if ($colorComponents !== null) {
-                    list($r, $g, $b) = $colorComponents;
-                } else {
-                    throw new \Exception('QR color: sscanf returned null!');
-                }
-                $r = intval($r);
-                $g = intval($g);
-                $b = intval($b);
+                $colorComponents = self::getColorComponents($this->qrColor);
+                list($r, $g, $b) = $colorComponents;
 
                 $selected = intval(imagecolorallocate($qrCodeImage, $r, $g, $b));
 
@@ -1122,15 +1147,8 @@ class Image
             }
 
             // Convert hex color string to RGB values
-            $colorComponents = sscanf($this->polaroidBgColor, '#%02x%02x%02x');
-            if ($colorComponents !== null) {
-                list($rbcc, $gbcc, $bbcc) = $colorComponents;
-            } else {
-                throw new \Exception('Polaroid color: sscanf returned null!');
-            }
-            $rbcc = intval($rbcc);
-            $gbcc = intval($gbcc);
-            $bbcc = intval($bbcc);
+            $colorComponents = self::getColorComponents($this->polaroidBgColor);
+            list($rbcc, $gbcc, $bbcc) = $colorComponents;
 
             // We rotate the image
             $background = intval(imagecolorallocate($img, $rbcc, $gbcc, $bbcc));

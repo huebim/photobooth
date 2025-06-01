@@ -18,6 +18,8 @@ function handleDebugPanel(string $content, array $config): string|false
             return readFileContents(PathUtility::getAbsolutePath('var/log/remotebuzzer.log'));
         case 'nav-synctodrivelog':
             return readFileContents(PathUtility::getAbsolutePath('var/log/synctodrive.log'));
+        case 'nav-remotestoragelog':
+            return readFileContents(PathUtility::getAbsolutePath('var/log/remotestorage.log'));
         case 'nav-myconfig':
             echo implode("\n", showConfig($config));
             return json_encode('');
@@ -26,7 +28,7 @@ function handleDebugPanel(string $content, array $config): string|false
         case 'nav-bootconfig':
             return readFileContents('/boot/config.txt');
         case 'nav-installlog':
-            return readFileContents(PathUtility::getAbsolutePath('private/install.log'));
+            return readFileContents('/var/log/photobooth_install.log');
         case 'nav-githead':
             return getLatestCommits();
         case 'nav-printdb':

@@ -2,7 +2,11 @@
 
 namespace Photobooth\Configuration;
 
+use Photobooth\Enum\CollageLayoutEnum;
 use Photobooth\Enum\ImageFilterEnum;
+use Photobooth\Enum\MailSecurityTypeEnum;
+use Photobooth\Enum\RemoteStorageTypeEnum;
+use Photobooth\Enum\TimezoneEnum;
 use Photobooth\Environment;
 use Symfony\Component\Config\Definition\Builder\NodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
@@ -93,6 +97,11 @@ class PhotoboothConfiguration implements ConfigurationInterface
             ->children()
                 ->booleanNode('enabled')->defaultValue(false)->end()
                 ->booleanNode('send_all_later')->defaultValue(false)->end()
+                ->booleanNode('virtualKeyboard')->defaultValue(false)->end()
+                ->enumNode('keyboardLayout')
+                    ->values(['azerty', 'qwerty', 'qwertz'])
+                    ->defaultValue('qwerty')
+                    ->end()
                 ->scalarNode('subject')->defaultValue('')->end()
                 ->scalarNode('text')->defaultValue('')->end()
                 ->scalarNode('alt_text')->defaultValue('')->end()
@@ -103,7 +112,18 @@ class PhotoboothConfiguration implements ConfigurationInterface
                 ->scalarNode('fromAddress')->defaultValue('photobooth@example.com')->end()
                 ->scalarNode('fromName')->defaultValue('Photobooth')->end()
                 ->scalarNode('file')->defaultValue('mail-adresses')->end()
-                ->scalarNode('secure')->defaultValue('tls')->end()
+                ->enumNode('secure')
+                    ->values(MailSecurityTypeEnum::cases())
+                    ->defaultValue(MailSecurityTypeEnum::TLS)
+                    ->beforeNormalization()
+                        ->always(function ($value) {
+                            if (is_string($value)) {
+                                $value = MailSecurityTypeEnum::from($value);
+                            }
+                            return $value;
+                        })
+                        ->end()
+                    ->end()
                 ->integerNode('port')
                     ->defaultValue(587)
                     ->beforeNormalization()
@@ -185,8 +205,8 @@ class PhotoboothConfiguration implements ConfigurationInterface
                         ->end()
                     ->end()
                 ->integerNode('time')
-                    ->min(250)
-                    ->max(20000)
+                    ->min(500)
+                    ->max(60000)
                     ->defaultValue(5000)
                     ->beforeNormalization()
                         ->ifString()
@@ -330,7 +350,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                     ->end()
                 ->integerNode('rotation')
                     ->defaultValue(40)
-                    ->min(0)
+                    ->min(-359)
                     ->max(359)
                     ->beforeNormalization()
                         ->ifString()
@@ -633,7 +653,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                     ->defaultValue('seriouslyjs')
                     ->end()
                 ->scalarNode('seriouslyjs_color')->defaultValue('#62af74')->end()
-                ->scalarNode('background_path')->defaultValue('resources/img/background')->end()
+                ->booleanNode('private_backgrounds')->defaultValue(false)->end()
                 ->booleanNode('show_all')->defaultValue(false)->end()
             ->end();
     }
@@ -925,6 +945,18 @@ class PhotoboothConfiguration implements ConfigurationInterface
             ->ignoreExtraKeys()
             ->children()
                 ->booleanNode('enabled')->defaultValue(false)->end()
+                ->enumNode('type')
+                    ->values(RemoteStorageTypeEnum::cases())
+                    ->defaultValue(RemoteStorageTypeEnum::FTP)
+                    ->beforeNormalization()
+                        ->always(function ($value) {
+                            if (is_string($value)) {
+                                $value = RemoteStorageTypeEnum::from($value);
+                            }
+                            return $value;
+                        })
+                        ->end()
+                    ->end()
                 ->scalarNode('baseURL')->defaultValue('')->end()
                 ->integerNode('port')
                     ->defaultValue(21)
@@ -938,13 +970,11 @@ class PhotoboothConfiguration implements ConfigurationInterface
                 ->scalarNode('baseFolder')->defaultValue('')->end()
                 ->scalarNode('folder')->defaultValue('')->end()
                 ->scalarNode('title')->defaultValue('')->end()
-                ->booleanNode('appendDate')->defaultValue(false)->end()
                 ->booleanNode('useForQr')->defaultValue(false)->end()
                 ->scalarNode('website')->defaultValue('')->end()
-                ->scalarNode('urlTemplate')->defaultValue('')->end()
+                ->scalarNode('urlTemplate')->defaultValue('%website%/%folder%/%title%')->end()
                 ->booleanNode('create_webpage')->defaultValue(false)->end()
-                ->scalarNode('template_location')->defaultValue('')->end()
-                ->booleanNode('upload_thumb')->defaultValue(false)->end()
+                ->scalarNode('template_location')->defaultValue('resources/template/index.php')->end()
                 ->booleanNode('delete')->defaultValue(false)->end()
             ->end();
     }
@@ -1001,8 +1031,20 @@ class PhotoboothConfiguration implements ConfigurationInterface
             ->ignoreExtraKeys()
             ->children()
                 ->enumNode('language')
-                    ->values(['cs', 'de', 'en', 'es', 'fr', 'hr', 'it', 'nl', 'pt'])
+                    ->values(['cs', 'de', 'en', 'es', 'fr', 'hr', 'it', 'nl', 'pt', 'tr'])
                     ->defaultValue('en')
+                    ->end()
+                ->enumNode('local_timezone')
+                    ->values(TimezoneEnum::cases())
+                    ->defaultValue(TimezoneEnum::EUROPE_LONDON)
+                    ->beforeNormalization()
+                        ->always(function ($value) {
+                            if (is_string($value)) {
+                                $value = TimezoneEnum::from($value);
+                            }
+                            return $value;
+                        })
+                        ->end()
                     ->end()
                 ->integerNode('notification_timeout')
                     ->defaultValue(5)
@@ -1207,7 +1249,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                 ->booleanNode('polaroid_effect')->defaultValue(false)->end()
                 ->integerNode('polaroid_rotation')
                     ->defaultValue(0)
-                    ->min(0)
+                    ->min(-359)
                     ->max(359)
                     ->beforeNormalization()
                         ->ifString()
@@ -1292,7 +1334,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                     ->end()
                 ->integerNode('rotation')
                     ->defaultValue(0)
-                    ->min(0)
+                    ->min(-359)
                     ->max(359)
                     ->beforeNormalization()
                         ->ifString()
@@ -1347,8 +1389,9 @@ class PhotoboothConfiguration implements ConfigurationInterface
                 ->scalarNode('textLeft')->defaultValue('')->end()
                 ->enumNode('symbol')
                     ->values([
-                        'fa-camera-retro', 'fa-birthday-cake', 'fa-gift', 'fa-tree', 'fa-snowflake-o', 'fa-heart-o',
-                        'fa-heart', 'fa-heartbeat', 'fa-apple', 'fa-anchor', 'fa-glass', 'fa-gears', 'fa-users'
+                        'fa-camera', 'fa-camera-retro', 'fa-birthday-cake', 'fa-gift', 'fa-tree', 'fa-snowflake',
+                        'fa-regular fa-heart', 'fa-solid fa-heart', 'fa-solid fa-heart-pulse', 'fa-brands fa-apple',
+                        'fa-anchor', 'fa-light fa-champagne-glasses', 'fa-gears', 'fa-users'
                     ])
                     ->defaultValue('fa-heart-o')
                     ->end()
@@ -1363,7 +1406,6 @@ class PhotoboothConfiguration implements ConfigurationInterface
                 ->booleanNode('force_buzzer')->defaultValue(false)->end()
                 ->scalarNode('buzzer_message')->defaultValue('Use Buzzer to take a Picture')->end()
                 ->booleanNode('show_cups')->defaultValue(false)->end()
-                ->booleanNode('show_fs')->defaultValue(false)->end()
                 ->booleanNode('show_printUnlock')->defaultValue(false)->end()
                 ->booleanNode('homescreen')->defaultValue(true)->end()
                 ->booleanNode('reload')->defaultValue(false)->end()
@@ -1459,12 +1501,16 @@ class PhotoboothConfiguration implements ConfigurationInterface
                         ->end()
                     ->end()
                 ->enumNode('layout')
-                    ->values([
-                        '2+2-1', '2+2-2', '1+3-1', '1+3-2', '3+1', '1+2', '2+1',
-                        '2x4-1', '2x4-2', '2x4-3', '2x4-4', '2x3-1', '2x3-2',
-                        'collage.json',
-                    ])
-                    ->defaultValue('2+2-2')
+                    ->values(CollageLayoutEnum::cases())
+                    ->defaultValue(CollageLayoutEnum::TWO_PLUS_TWO_2)
+                    ->beforeNormalization()
+                        ->always(function ($value) {
+                            if (is_string($value)) {
+                                $value = CollageLayoutEnum::from($value);
+                            }
+                            return $value;
+                        })
+                        ->end()
                     ->end()
                 ->enumNode('resolution')
                     ->values(['150dpi', '300dpi', '400dpi', '600dpi'])
@@ -1527,7 +1573,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                     ->end()
                 ->integerNode('rotation')
                     ->defaultValue(0)
-                    ->min(0)
+                    ->min(-359)
                     ->max(359)
                     ->beforeNormalization()
                         ->ifString()
@@ -1560,6 +1606,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
             ->children()
                 ->integerNode('image')
                     ->defaultValue(100)
+                    ->min(-1)
                     ->max(100)
                     ->beforeNormalization()
                         ->ifString()
@@ -1568,6 +1615,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                     ->end()
                 ->integerNode('chroma')
                     ->defaultValue(100)
+                    ->min(-1)
                     ->max(100)
                     ->beforeNormalization()
                         ->ifString()
@@ -1576,6 +1624,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                     ->end()
                 ->integerNode('thumb')
                     ->defaultValue(60)
+                    ->min(-1)
                     ->max(100)
                     ->beforeNormalization()
                         ->ifString()

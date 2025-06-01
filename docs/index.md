@@ -44,6 +44,28 @@ View all version changes [here](changelog.md).
 
 ## News
 
+### 22. December 2024
+
+Hey together!
+
+This year almost comes to an end.
+
+I am glad to see the community is growing every day and I am proud about the support and help from everyone! It's kind of special and unique seeing user helping each other like done in our community!
+
+I am happy about all the contributions made to the project - especially Benjamin Kott helped a lot reworking and improving the source of Photobooth! With the improved source and code quality Photobooth runs always stable on latest development version!
+
+There's still work left before Photobooth v5 can be released as a stable release, due to changes in private life I haven't had the time needed for it.
+
+Photobooth stays feature complete for this year in latest development source, only dependencies updates will be applied.
+
+I hope everyone can enjoy the Christmas days and have a good start into the new year 2025!
+
+Best regards
+
+Andi
+
+---
+
 ### 17. September 2024
 
 Photobooth v4.5.1 has been released.

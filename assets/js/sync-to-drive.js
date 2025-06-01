@@ -25,6 +25,7 @@ if (process.platform === 'win32') {
 
 class SyncToDrive {
     constructor() {
+        this.validateRsync();
         this.config = this.fetchConfig();
         if (!this.config.synctodrive.enabled) {
             error('Sync to drive is disabled.');
@@ -45,6 +46,15 @@ class SyncToDrive {
 
         this.createProcessFile();
         this.start();
+    }
+
+    validateRsync() {
+        try {
+            execSync('command -v rsync', { stdio: 'ignore' });
+        } catch (err) {
+            log(err.message);
+            error('Error: rsync is not installed. Please install it and try again.');
+        }
     }
 
     start() {
@@ -82,15 +92,23 @@ class SyncToDrive {
             throw new Error('Folder ' + this.source + ' does not exist!');
         }
 
-        log('Starting sync to USB drive ...');
-        const distinationPath = path.join(device.mountpoint, this.destination);
-        if (!fs.existsSync(distinationPath)) {
-            log('Creating target directory' + distinationPath);
-            fs.mkdirSync(distinationPath, { recursive: true });
+        if (!device.mountpoint) {
+            throw new Error('Error: USB device is not properly mounted.');
         }
 
-        log('Source data folder ' + this.source);
-        log('Syncing to drive ' + device.path + ' -> ' + distinationPath);
+        const destinationPath = path.join(device.mountpoint, this.destination);
+        if (!fs.existsSync(destinationPath)) {
+            log(`Creating target directory ${destinationPath}`);
+            try {
+                fs.mkdirSync(destinationPath, { recursive: true });
+            } catch (err) {
+                throw new Error(`Error: Failed to create directory ${destinationPath} - ${err.message}`);
+            }
+        }
+
+        if (!this.isWritable(destinationPath)) {
+            throw new Error(`Error: Destination ${destinationPath} is not writable.`);
+        }
 
         const command = [
             'rsync',
@@ -104,9 +122,21 @@ class SyncToDrive {
             '--exclude=\'*\'',
             '--prune-empty-dirs',
             this.source,
-            path.join(device.mountpoint, this.destination)
+            destinationPath
         ].join(' ');
-        log('Executing command "' + command + '"');
+
+        log('Validating rsync command...');
+        try {
+            execSync(command + ' --dry-run', { stdio: 'ignore' });
+            // eslint-disable-next-line no-unused-vars
+        } catch (err) {
+            throw new Error('Error: Rsync validation failed. Check permissions and paths.');
+        }
+
+        log('Starting sync to USB drive ...');
+        log('Source data folder ' + this.source);
+        log('Syncing to drive ' + device.path + ' -> ' + destinationPath);
+        log(`Executing command: "${command}"`);
 
         this.rsyncProcess = spawn(command, {
             shell: '/bin/bash'
@@ -118,8 +148,7 @@ class SyncToDrive {
         });
         this.rsyncProcess.on('exit', () => {
             this.rsyncProcess = null;
-            log('Sync finished');
-            log('Next run in ' + this.intervalInSeconds + 's');
+            log('Sync finished. Next run in ' + this.intervalInSeconds + 's');
             setTimeout(() => {
                 this.start();
             }, this.intervalInMilliseconds);
@@ -226,6 +255,16 @@ class SyncToDrive {
         }
 
         this.stop();
+    }
+
+    isWritable(directory) {
+        try {
+            fs.accessSync(directory, fs.constants.W_OK);
+            return true;
+            // eslint-disable-next-line no-unused-vars
+        } catch (err) {
+            return false;
+        }
     }
 
     fetchConfig() {

@@ -1,6 +1,10 @@
 <?php
 
+use Photobooth\Enum\CollageLayoutEnum;
 use Photobooth\Enum\ImageFilterEnum;
+use Photobooth\Enum\MailSecurityTypeEnum;
+use Photobooth\Enum\RemoteStorageTypeEnum;
+use Photobooth\Enum\TimezoneEnum;
 use Photobooth\Service\ConfigurationService;
 use Photobooth\Service\LanguageService;
 use Photobooth\Utility\PathUtility;
@@ -95,8 +99,17 @@ return [
                 'it' => 'IT',
                 'nl' => 'NL',
                 'pt' => 'PT',
+                'tr' => 'TR',
             ],
             'value' => $config['ui']['language'],
+        ],
+        'local_timezone' => [
+            'view' => 'basic',
+            'type' => 'select',
+            'name' => 'ui[local_timezone]',
+            'placeholder' => $defaultConfig['ui']['local_timezone'],
+            'value' => $config['ui']['local_timezone'],
+            'options' => TimezoneEnum::cases(),
         ],
         'translate' => [
             'view' => 'basic',
@@ -372,13 +385,13 @@ return [
                 'fa-birthday-cake' => 'Birthday Cake',
                 'fa-gift' => 'Gift',
                 'fa-tree' => 'Tree',
-                'fa-snowflake-o' => 'Snowflake',
-                'fa-heart-o' => 'Heart',
-                'fa-heart' => 'Heart filled',
-                'fa-heartbeat' => 'Heartbeat',
-                'fa-apple' => 'Apple',
+                'fa-snowflake' => 'Snowflake',
+                'fa-regular fa-heart' => 'Heart',
+                'fa-solid fa-heart' => 'Heart filled',
+                'fa-solid fa-heart-pulse' => 'Heartbeat',
+                'fa-brands fa-apple' => 'Apple',
                 'fa-anchor' => 'Anchor',
-                'fa-glass' => 'Glass',
+                'fa-light fa-champagne-glasses' => 'Champagne glasses',
                 'fa-gears' => 'Gears',
                 'fa-users' => 'People',
             ],
@@ -481,9 +494,13 @@ return [
         ],
         'picture_rotation' => [
             'view' => 'advanced',
-            'type' => 'number',
+            'type' => 'range',
             'placeholder' => $defaultConfig['picture']['rotation'],
             'name' => 'picture[rotation]',
+            'range_min' => -359,
+            'range_max' => 359,
+            'range_step' => 1,
+            'unit' => 'degrees',
             'value' => $config['picture']['rotation'],
         ],
         'picture_polaroid_effect' => [
@@ -494,10 +511,14 @@ return [
         ],
         'picture_polaroid_rotation' => [
             'view' => 'advanced',
-            'type' => 'number',
+            'type' => 'range',
             'placeholder' => $defaultConfig['picture']['polaroid_rotation'],
             'name' => 'picture[polaroid_rotation]',
             'value' => $config['picture']['polaroid_rotation'],
+            'range_min' => -45,
+            'range_max' => 45,
+            'range_step' => 1,
+            'unit' => 'degrees',
         ],
         'filters_enabled' => [
             'view' => 'advanced',
@@ -756,22 +777,7 @@ return [
             'type' => 'select',
             'name' => 'collage[layout]',
             'placeholder' => $defaultConfig['collage']['layout'],
-            'options' => [
-                '2+2-1' => '2+2',
-                '2+2-2' => '2+2 (2)',
-                '1+3-1' => '1+3',
-                '1+3-2' => '1+3 (2)',
-                '3+1' => '3+1',
-                '1+2' => '1+2',
-                '2+1' => '2+1',
-                '2x4-1' => '2x4',
-                '2x4-2' => '2x4 (2)',
-                '2x4-3' => '2x4 (3)',
-                '2x4-4' => '2x4 (4)',
-                '2x3-1' => '2x3',
-                '2x3-2' => '2x3 (2)',
-                'collage.json' => 'private/collage.json',
-            ],
+            'options' => CollageLayoutEnum::cases(),
             'value' => $config['collage']['layout'],
         ],
         'layout_generator' => [
@@ -1452,12 +1458,11 @@ return [
             'placeholder' => $defaultConfig['keying']['seriouslyjs_color'],
             'value' => $config['keying']['seriouslyjs_color'],
         ],
-        'keying_background_path' => [
+        'keying_private_backgrounds' => [
             'view' => 'expert',
-            'type' => 'input',
-            'placeholder' => $defaultConfig['keying']['background_path'],
-            'name' => 'keying[background_path]',
-            'value' => htmlentities($config['keying']['background_path'] ?? ''),
+            'type' => 'checkbox',
+            'name' => 'keying[private_backgrounds]',
+            'value' => $config['keying']['private_backgrounds'],
         ],
         'keying_show_all' => [
             'view' => 'expert',
@@ -1515,9 +1520,9 @@ return [
             'placeholder' => $defaultConfig['print']['time'],
             'name' => 'print[time]',
             'value' => $config['print']['time'],
-            'range_min' => 250,
-            'range_max' => 20000,
-            'range_step' => 250,
+            'range_min' => 500,
+            'range_max' => 60000,
+            'range_step' => 500,
             'unit' => 'milliseconds',
         ],
         'print_limit' => [
@@ -1877,6 +1882,23 @@ return [
             'name' => 'mail[send_all_later]',
             'value' => $config['mail']['send_all_later'],
         ],
+        'mail_virtualKeyboard' => [
+            'view' => 'basic',
+            'type' => 'checkbox',
+            'name' => 'mail[virtualKeyboard]',
+            'value' => $config['mail']['virtualKeyboard'],
+        ],
+        'mail_virtual_keyboardLayout' => [
+            'view' => 'basic',
+            'type' => 'select',
+            'name' => 'mail[keyboardLayout]',
+            'options' => [
+                'azerty' => 'AZERTY',
+                'qwerty' => 'QWERTY',
+                'qwertz' => 'QWERTZ',
+            ],
+            'value' => $config['mail']['keyboardLayout'],
+        ],
         'mail_subject' => [
             'view' => 'basic',
             'type' => 'input',
@@ -1926,7 +1948,7 @@ return [
             'value' => htmlentities($config['mail']['password'] ?? ''),
         ],
         'mail_fromAddress' => [
-            'view' => 'advanced',
+            'view' => 'basic',
             'type' => 'input',
             'placeholder' => $defaultConfig['mail']['fromAddress'],
             'name' => 'mail[fromAddress]',
@@ -1947,14 +1969,15 @@ return [
             'value' => $config['mail']['file'],
         ],
         'mail_secure' => [
-            'view' => 'expert',
-            'type' => 'input',
-            'placeholder' => $defaultConfig['mail']['secure'],
+            'view' => 'basic',
+            'type' => 'select',
             'name' => 'mail[secure]',
+            'placeholder' => $defaultConfig['mail']['secure'],
+            'options' => MailSecurityTypeEnum::cases(),
             'value' => $config['mail']['secure'],
         ],
         'mail_port' => [
-            'view' => 'expert',
+            'view' => 'basic',
             'type' => 'number',
             'placeholder' => $defaultConfig['mail']['port'],
             'name' => 'mail[port]',
@@ -2415,33 +2438,41 @@ return [
             'name' => 'ftp[enabled]',
             'value' => $config['ftp']['enabled'],
         ],
+        'type' => [
+            'view' => 'advanced',
+            'type' => 'select',
+            'name' => 'ftp[type]',
+            'placeholder' => $defaultConfig['ftp']['type'],
+            'options' => RemoteStorageTypeEnum::cases(),
+            'value' => $config['ftp']['type'],
+        ],
         'baseURL' => [
             'view' => 'advanced',
             'type' => 'input',
             'placeholder' => 'ftp.photobooth.com',
             'name' => 'ftp[baseURL]',
-            'value' => htmlentities($config['ftp']['baseURL'] ?? ''),
+            'value' => $config['ftp']['baseURL'],
         ],
         'port' => [
             'view' => 'advanced',
             'type' => 'input',
             'placeholder' => $defaultConfig['ftp']['port'],
             'name' => 'ftp[port]',
-            'value' => htmlentities($config['ftp']['port'] ?? ''),
+            'value' => $config['ftp']['port'],
         ],
         'username' => [
             'view' => 'advanced',
             'type' => 'input',
             'placeholder' => '',
             'name' => 'ftp[username]',
-            'value' => htmlentities($config['ftp']['username'] ?? ''),
+            'value' => $config['ftp']['username'],
         ],
         'password' => [
             'view' => 'advanced',
             'type' => 'input',
             'placeholder' => '',
             'name' => 'ftp[password]',
-            'value' => htmlentities($config['ftp']['password'] ?? ''),
+            'value' => $config['ftp']['password'],
         ],
         'test_connection' => [
             'view' => 'basic',
@@ -2455,27 +2486,21 @@ return [
             'type' => 'input',
             'placeholder' => 'mysite',
             'name' => 'ftp[baseFolder]',
-            'value' => htmlentities($config['ftp']['baseFolder'] ?? ''),
+            'value' => $config['ftp']['baseFolder'],
         ],
         'folder' => [
             'view' => 'advanced',
             'type' => 'input',
             'placeholder' => 'photobooth',
             'name' => 'ftp[folder]',
-            'value' => htmlentities($config['ftp']['folder'] ?? ''),
+            'value' => $config['ftp']['folder'],
         ],
         'title' => [
             'view' => 'advanced',
             'type' => 'input',
             'placeholder' => '',
             'name' => 'ftp[title]',
-            'value' => htmlentities($config['ftp']['title'] ?? ''),
-        ],
-        'appendDate' => [
-            'view' => 'basic',
-            'type' => 'checkbox',
-            'name' => 'ftp[appendDate]',
-            'value' => $config['ftp']['appendDate'],
+            'value' => $config['ftp']['title'],
         ],
         'useForQr' => [
             'view' => 'basic',
@@ -2488,14 +2513,14 @@ return [
             'type' => 'input',
             'placeholder' => 'https://photobooth.com',
             'name' => 'ftp[website]',
-            'value' => htmlentities($config['ftp']['website'] ?? ''),
+            'value' => $config['ftp']['website'],
         ],
         'urlTemplate' => [
             'view' => 'advanced',
             'type' => 'input',
-            'placeholder' => '%website/%folder/%title/',
+            'placeholder' => '%website%/%folder%/%title%',
             'name' => 'ftp[urlTemplate]',
-            'value' => htmlentities($config['ftp']['urlTemplate'] ?? ''),
+            'value' => $config['ftp']['urlTemplate'],
         ],
         'create_webpage' => [
             'view' => 'basic',
@@ -2506,15 +2531,9 @@ return [
         'template_location' => [
             'view' => 'advanced',
             'type' => 'input',
-            'placeholder' => '/resources/template/index.php',
+            'placeholder' => 'resources/template/index.php',
             'name' => 'ftp[template_location]',
-            'value' => htmlentities($config['ftp']['template_location'] ?? ''),
-        ],
-        'upload_thumb' => [
-            'view' => 'basic',
-            'type' => 'checkbox',
-            'name' => 'ftp[upload_thumb]',
-            'value' => $config['ftp']['upload_thumb'],
+            'value' => $config['ftp']['template_location'],
         ],
         'delete' => [
             'view' => 'basic',
@@ -2687,12 +2706,6 @@ return [
                 PathUtility::getAbsolutePath('resources/img/cheese'),
                 PathUtility::getAbsolutePath('private/images/cheese'),
             ]
-        ],
-        'button_show_fs' => [
-            'view' => 'basic',
-            'type' => 'checkbox',
-            'name' => 'button[show_fs]',
-            'value' => $config['button']['show_fs'],
         ],
         'button_homescreen' => [
             'view' => 'advanced',
@@ -3184,7 +3197,7 @@ return [
             'name' => 'jpeg_quality[image]',
             'placeholder' => $defaultConfig['jpeg_quality']['image'],
             'value' => $config['jpeg_quality']['image'],
-            'range_min' => -1,
+            'range_min' => 50,
             'range_max' => 100,
             'range_step' => 1,
             'unit' => 'percent',

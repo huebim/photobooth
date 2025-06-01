@@ -5,6 +5,7 @@
 
 require_once '../lib/boot.php';
 
+use Photobooth\Enum\CollageLayoutEnum;
 use Photobooth\Enum\FolderEnum;
 use Photobooth\Environment;
 use Photobooth\Service\ConfigurationService;
@@ -171,6 +172,12 @@ if ($action === 'reset') {
         $newConfig['filters']['disabled'] = [];
     }
 
+    if (isset($newConfig['commands']['preview']) && !empty($newConfig['commands']['preview'])) {
+        if (strpos($newConfig['commands']['preview'], 'cameracontrol') !== false) {
+            $newConfig['preview']['bsm'] = strpos($newConfig['commands']['preview'], '--bsm') !== false;
+        }
+    }
+
     if ($newConfig['preview']['camTakesPic'] && $newConfig['preview']['mode'] != 'device_cam' && $newConfig['preview']['mode'] != 'gphoto') {
         $newConfig['preview']['camTakesPic'] = false;
         $logger->debug('Device cam takes picture disabled. Can take images from preview only from gphoto2 and device cam preview.');
@@ -211,18 +218,17 @@ if ($action === 'reset') {
         }
     }
 
-    $collageLayout = $newConfig['collage']['layout'];
+    $newConfig['collage']['limit'] = CollageLayoutEnum::getLimitByValue($newConfig['collage']['layout']);
+    if ($newConfig['collage']['limit'] === 0) {
+        $logger->debug('Collage limit = 0. Falling back to defaults.');
+        $newConfig['collage']['layout'] = CollageLayoutEnum::TWO_PLUS_TWO_2->value;
+        $newConfig['collage']['limit'] = CollageLayoutEnum::TWO_PLUS_TWO_2->limit();
+    }
+
     $collageConfigFilePath = PathUtility::getAbsolutePath('private/collage.json');
-    if ($collageLayout === '1+2' || $collageLayout === '2+1' || strpos($collageLayout, '2x3') === 0) {
-        $newConfig['collage']['limit'] = 3;
-    } elseif ($collageLayout == 'collage.json' && file_exists($collageConfigFilePath)) {
+    if ($newConfig['collage']['layout'] == 'collage.json' && file_exists($collageConfigFilePath)) {
         $collageConfig = json_decode((string)file_get_contents($collageConfigFilePath), true);
         if (is_array($collageConfig)) {
-            if (array_key_exists('layout', $collageConfig)) {
-                $newConfig['collage']['limit'] = count($collageConfig['layout']);
-            } else {
-                $newConfig['collage']['limit'] = count($collageConfig);
-            }
             if (array_key_exists('placeholder', $collageConfig)) {
                 $newConfig['collage']['placeholder'] = $collageConfig['placeholder'];
             }
@@ -232,11 +238,7 @@ if ($action === 'reset') {
             if (array_key_exists('placeholderpath', $collageConfig)) {
                 $newConfig['collage']['placeholderpath'] = $collageConfig['placeholderpath'];
             }
-        } else {
-            $newConfig['collage']['limit'] = 4;
         }
-    } else {
-        $newConfig['collage']['limit'] = 4;
     }
 
     // If there is a collage placeholder whithin the correct range (0 < placeholderposition <= collage limit), we need to decrease the collage limit by 1
@@ -257,32 +259,32 @@ if ($action === 'reset') {
 
     if ($newConfig['picture']['take_frame'] && $newConfig['picture']['frame'] === '') {
         $newConfig['picture']['take_frame'] = false;
-        $logger->debug('set picture.frame empty', [$newConfig['picture']['frame']]);
+        $logger->debug('Picture frame empty. Disabled picture frame.');
     }
 
     if ($newConfig['collage']['take_frame'] && $newConfig['collage']['frame'] === '') {
         $newConfig['collage']['take_frame'] = false;
-        $logger->debug('collage.frame empty', [$newConfig['collage']['frame']]);
+        $logger->debug('Collage frame empty. Disabled collage frame.');
     }
 
     if ($newConfig['print']['print_frame'] && $newConfig['print']['frame'] === '') {
         $newConfig['print']['print_frame'] = false;
-        $logger->debug('print.frame empty', [$newConfig['print']['frame']]);
+        $logger->debug('Print frame empty. Disabled frame on print.');
     }
 
-    if ($newConfig['textonpicture']['enabled'] && ($newConfig['textonpicture']['font'] === '' || !file_exists(PathUtility::getAbsolutePath($newConfig['textonpicture']['font'])))) {
+    if ($newConfig['textonpicture']['enabled'] && $newConfig['textonpicture']['font'] === '') {
         $newConfig['textonpicture']['enabled'] = false;
-        $logger->debug('Picture font does not exist or is empty. Disabled text on picture. Note: Must be an absoloute path.', [$newConfig['textonpicture']['font']]);
+        $logger->debug('Picture font is empty. Disabled text on picture.');
     }
 
-    if ($newConfig['textoncollage']['enabled'] && ($newConfig['textoncollage']['font'] === '' || !file_exists(PathUtility::getAbsolutePath($newConfig['textoncollage']['font'])))) {
+    if ($newConfig['textoncollage']['enabled'] && $newConfig['textoncollage']['font'] === '') {
         $newConfig['textoncollage']['enabled'] = false;
-        $logger->debug('Collage font does not exist or is empty. Disabled text on picture. Note: Must be an absoloute path.', [$newConfig['textoncollage']['font']]);
+        $logger->debug('Collage font is empty. Disabled text on picture.');
     }
 
-    if ($newConfig['textonprint']['enabled'] && ($newConfig['textonprint']['font'] === '' || !file_exists(PathUtility::getAbsolutePath($newConfig['textonprint']['font'])))) {
+    if ($newConfig['textonprint']['enabled'] && $newConfig['textonprint']['font'] === '') {
         $newConfig['textonprint']['enabled'] = false;
-        $logger->debug('Print font does not exist or is empty. Disabled text on print. Note: Must be an absoloute path.', [$newConfig['textonprint']['font']]);
+        $logger->debug('Print font is empty. Disabled text on print.');
     }
 
     if ($newConfig['logo']['enabled']) {

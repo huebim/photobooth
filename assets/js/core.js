@@ -1,5 +1,5 @@
 /* eslint n/no-unsupported-features/node-builtins: "off" */
-/* globals initPhotoSwipeFromDOM initRemoteBuzzerFromDOM processChromaImage remoteBuzzerClient rotaryController globalGalleryHandle photoboothTools photoboothPreview */
+/* globals initPhotoSwipeFromDOM initRemoteBuzzerFromDOM processChromaImage remoteBuzzerClient rotaryController globalGalleryHandle photoboothTools photoboothPreview virtualKeyboard */
 
 const photoBooth = (function () {
     const PhotoStyle = {
@@ -268,12 +268,13 @@ const photoBooth = (function () {
                 } else if (api.photoStyle === PhotoStyle.COLLAGE) {
                     const labelElement = document.createElement('div');
                     labelElement.classList.add('cheese-label');
-                    labelElement.textContent =
+                    labelElement.innerHTML =
                         photoboothTools.getTranslation('cheese') +
-                        ' ' +
+                        '<br>' +
                         (api.nextCollageNumber + 1) +
                         ' / ' +
                         config.collage.limit;
+                    labelElement.style.textAlign = 'center';
                     element.appendChild(labelElement);
                 } else {
                     const labelElement = document.createElement('div');
@@ -422,6 +423,7 @@ const photoBooth = (function () {
         api.navbar.close();
         api.reset();
         api.closeGallery();
+        api.clearLoaderImage();
 
         remoteBuzzerClient.inProgress(photoStyle);
         api.takingPic = true;
@@ -660,7 +662,6 @@ const photoBooth = (function () {
                             takePictureButton.appendTo(loaderButtonBar).on('click', (event) => {
                                 event.stopPropagation();
                                 event.preventDefault();
-                                api.clearLoaderImage();
                                 imageUrl = '';
                                 api.thrill(PhotoStyle.COLLAGE);
                             });
@@ -680,7 +681,6 @@ const photoBooth = (function () {
                             collageProcessButton.appendTo(loaderButtonBar).on('click', (event) => {
                                 event.stopPropagation();
                                 event.preventDefault();
-                                api.clearLoaderImage();
                                 imageUrl = '';
                                 currentCollageFile = '';
                                 api.nextCollageNumber = 0;
@@ -699,7 +699,6 @@ const photoBooth = (function () {
                         retakeButton.appendTo(loaderButtonBar).on('click', (event) => {
                             event.stopPropagation();
                             event.preventDefault();
-                            api.clearLoaderImage();
                             imageUrl = '';
                             api.deleteImage(result.collage_file, () => {
                                 setTimeout(function () {
@@ -1059,13 +1058,17 @@ const photoBooth = (function () {
         const recipientInput = document.createElement('input');
         recipientInput.classList.add('form-input');
         recipientInput.id = 'send-mail-recipient';
-        recipientInput.type = 'email';
+        recipientInput.type = 'text';
         recipientInput.name = 'recipient';
         recipientInput.addEventListener('focusin', (event) => {
             // workaround for photoswipe blocking input
             event.stopImmediatePropagation();
         });
         form.appendChild(recipientInput);
+
+        if (config.mail.virtualKeyboard) {
+            virtualKeyboard.initialize(config.mail.keyboardLayout, '#send-mail-recipient', '#send-mail-form');
+        }
 
         // Submit
         const submitLabel = config.mail.send_all_later
@@ -1448,16 +1451,6 @@ const photoBooth = (function () {
                 }, 2000);
             }
         });
-    });
-
-    $('.fs-button').on('click', function (e) {
-        e.preventDefault();
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else {
-            document.body.requestFullscreen();
-        }
-        $('#fs-button').trigger('blur');
     });
 
     api.handleButtonPressWhileTakingPic = function () {

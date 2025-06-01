@@ -480,7 +480,14 @@ These trigger URLs can be used for example with [myStrom WiFi Buttons](https://m
 
 ### Autostart on Pi OS Bookworm
 
-Modify `~/.config/wayfire.ini` as stated. If there is a section [autostart] already, just add the line chromium = ... otherwise insert the complete section.
+Since late 2024 Wayland/labwc is the default on all new installations of RPiOS with desktop. Add to the user specific autostart file location: `~/.config/labwc/autostart`, though it doesn't exist by default. If there is a section [autostart] already, just add the line chromium --... otherwise insert the complete section.
+
+```
+[autostart]
+chromium --kiosk --disable-features=Translate --noerrdialogs --disable-infobars --no-first-run --ozone-platform=wayland --touch-events=enabled --start-maximized http://localhost
+```
+
+If you use Wayland/Wayfire modify `~/.config/wayfire.ini` as stated.
 
 ```
 [autostart]
@@ -520,6 +527,20 @@ The flag `--use-gl=egl` might only be needed on a Raspberry Pi to avoid a white 
 ---
 
 ## How to hide the mouse cursor, disable screen blanking and screen saver?
+
+**Pi OS bookworm**
+
+Applications like _unclutter_ don't work on Wayland.
+
+To hide the mouse cursor we can rename the icon to hide it:
+```
+sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak
+```
+
+To make the mouse cursor visible again we need to rename it back to it's original name:
+```
+sudo mv /usr/share/icons/PiXflat/cursors/left_ptr.bak /usr/share/icons/PiXflat/cursors/left_ptr
+```
 
 **Pi OS Bullseye and prior only**
 
@@ -590,7 +611,7 @@ go2rtc can be accessed at `http://localhost:1984`. Use `url("http://localhost:19
 To be able to also capture images you need to adjust the capture command.
 _"Commands"_: _"Take picture command"_: `capture %s`
 
-For preview via DSLR make sure your camera supports `--capture-movie`, for PiCamera make sure `rpicam-vid` or `libcamera-vid` works via terminal.
+For preview via DSLR first make sure `gphoto2 --capture-movie` works via terminal, for PiCamera make sure `rpicam-vid` or `libcamera-vid` works via terminal.
 
 Install go2rtc preview service:
 ```sh
@@ -761,7 +782,7 @@ If you're still having trouble feel free to join us at Telegram to get further s
 
 Yes you can. Using the file uploader you can add your video into the `/private/videos/background` folder.
 
-Once done go to [User interface](http://localhost/admin/#userinterface), switch from from `image` to `video` as background and choose your video in "Background video path".
+Once done go to [User interface](http://localhost/admin/#userinterface), switch from `image` to `video` as background and choose your video in "Background video path".
 
 You can also use a youtube video/livestream!\
 In the background video path put the link pulled from youtube. Note that the link should be in the following format: `https://www.youtube.com/embed/<video_id>`.\
@@ -843,13 +864,7 @@ Now restart your Chromium browser.
 
 Open [http://localhost/phpinfo.php](http://localhost/phpinfo.php) in your browser.
 
-Take a look for "Loaded Configuration File", you need _sudo_ rights to edit the file.
-
-Page will look like this:
-
-<details><summary>CLICK ME</summary>
-<img src="../resources/img/faq/php-ini.png" alt="php.ini Screenshot">
-</details>
+Take a look for "Loaded Configuration File" to get the path of your php.ini, you need _sudo_ rights to edit the file.
 
 ---
 
@@ -987,8 +1002,6 @@ The next variables are for the place where you want the pictures to be stored:
 -   `baseFolder` is the folder of your website (if you have multiple websites living on the server with this property you can choose on which of these the file should be stored)
 -   `folder` the folder dedicated to the upload of the files
 -   `title` if you are doing an event you can set the title of the event to create another folder (the system will slugify the string)
--   `appendDate` just like a simple blog websites, when articles are uploaded, the date is added to the url as the path. So if you want, the system will create a set of folder with this template: yyyy/mm/dd
--   `upload_thumb` if you want you can upload next to the processed picture also the thumbnails
 
 In the end the processed picture, and the thumbnails, will be uploaded in the folder according to these variables.
 

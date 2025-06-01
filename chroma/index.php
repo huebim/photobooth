@@ -31,8 +31,8 @@ include PathUtility::getAbsolutePath('template/components/main.head.php');
 ?>
 <body class="gallery-mode--overlay ">
 
-<?php include PathUtility::getAbsolutePath('template/components/preview.php'); ?>
 <?php include PathUtility::getAbsolutePath('template/components/chroma.canvas.php'); ?>
+<?php include PathUtility::getAbsolutePath('template/components/preview.php'); ?>
 
 <div class="stage stage--chroma rotarygroup" data-stage="start">
     <div class="stage-inner">
@@ -67,6 +67,7 @@ include PathUtility::getAbsolutePath('template/components/main.head.php');
 <?php include PathUtility::getAbsolutePath('template/components/chroma.footer.php'); ?>
 
 <script src="<?=$assetService->getUrl('resources/js/preview.js')?>"></script>
+<script src="<?=$assetService->getUrl('resources/js/virtualKeyboard.js')?>"></script>
 <script src="<?=$assetService->getUrl('resources/js/core.js')?>"></script>
 
 <?php ProcessService::getInstance()->boot(); ?>

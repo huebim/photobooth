@@ -3,6 +3,12 @@
 # Stop on the first sign of trouble
 set -e
 
+SCRIPT_NAME="install-photobooth.sh"
+SCRIPT_REMOTE_URL="https://raw.githubusercontent.com/PhotoboothProject/photobooth/refs/heads/dev/$SCRIPT_NAME"
+SCRIPT_TEMP_FILE="/tmp/$SCRIPT_NAME"
+SCRIPT_ABS_PATH="$(realpath "$0")"
+SCRIPT_ARGS=("$@")
+
 USERNAME=''
 WEBSERVER="apache"
 SILENT_INSTALL=false
@@ -10,7 +16,7 @@ RUNNING_ON_PI=true
 FORCE_RASPBERRY_PI=false
 DATE=$(date +"%Y%m%d-%H-%M")
 IPADDRESS=$(hostname -I | cut -d " " -f 1)
-PHOTOBOOTH_TMP_LOG="/tmp/$DATE-photobooth.txt"
+PHOTOBOOTH_LOG="/var/log/photobooth_install.log"
 
 BRANCH="dev"
 GIT_INSTALL=true
@@ -26,7 +32,7 @@ CHROME_FLAGS=false
 CHROME_DEFAULT_FLAGS="--noerrdialogs --disable-infobars --disable-features=Translate --no-first-run --check-for-update-interval=31536000 --touch-events=enabled --password-store=basic"
 AUTOSTART_FILE=""
 DESKTOP_OS=true
-WAYLAND_ENV=true
+WAYLAND_ENV=$(pgrep wayfire > /dev/null || pgrep labwc > /dev/null && echo true || echo false)
 PHP_VERSION="8.3"
 
 # Update
@@ -81,17 +87,17 @@ DEBIAN=(
 
 function info {
     echo -e "\033[0;36m${1}\033[0m"
-    echo "${1}" >>"$PHOTOBOOTH_TMP_LOG"
+    echo "${1}" >>"$PHOTOBOOTH_LOG"
 }
 
 function warn {
     echo -e "\033[0;33m${1}\033[0m"
-    echo "WARN: ${1}" >>"$PHOTOBOOTH_TMP_LOG"
+    echo "WARN: ${1}" >>"$PHOTOBOOTH_LOG"
 }
 
 function error {
     echo -e "\033[0;31m${1}\033[0m"
-    echo "ERROR: ${1}" >>"$PHOTOBOOTH_TMP_LOG"
+    echo "ERROR: ${1}" >>"$PHOTOBOOTH_LOG"
 }
 
 function print_spaces() {
@@ -272,6 +278,38 @@ else
     DESKTOP_OS=false
 fi
 
+function self_update() {
+    if ! wget -q -O "$SCRIPT_TEMP_FILE" "$SCRIPT_REMOTE_URL"; then
+        error "Unable to download the latest installation script."
+        return
+    fi
+
+    if ! cmp -s "$SCRIPT_TEMP_FILE" "$SCRIPT_ABS_PATH"; then
+        info "### Update found."
+        if [ "$SILENT_INSTALL" = true ]; then
+            info "### Skipping update on silent install."
+        else
+            info "### Updating the installation script..."
+            if ! mv -f "$SCRIPT_TEMP_FILE" "$SCRIPT_ABS_PATH"; then
+                error "Failed to update the installation script."
+                return
+            fi
+
+            if ! chmod +x "$SCRIPT_ABS_PATH"; then
+                error "Failed to add execution permission to the updated installation script."
+                return
+            fi
+
+            info "### Installation script updated successfully."
+            info "### Restarting..."
+            exec "$SCRIPT_ABS_PATH" "${SCRIPT_ARGS[@]}"
+        fi
+    else
+        info "### No installation script updates available."
+        rm -f "$SCRIPT_TEMP_FILE"
+    fi
+}
+
 function check_username() {
     info "[Info]      Checking if user $USERNAME exists..."
     if id "$USERNAME" &>/dev/null; then
@@ -420,18 +458,10 @@ function check_python() {
         warn "[WARN]      Python version is 3.12 or newer. Installing distutils..."
         if ! apt install python3-distutils -y; then
             warn "[WARN]      Failed to install python3-distutils!"
-            if grep -i Microsoft /proc/version &>/dev/null; then
-                warn "[WARN]      Continuing installation without python3-distutils..."
-            else
-                echo -e "\033[0;33m### Installation of Photobooth might fail if continuing."
-                ask_yes_no "### Do you like to continue installation? [y/N] " "N"
-                echo -e "\033[0m"
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
-                    warn "[WARN]      Continuing installation without python3-distutils..."
-                else
-                    error "[ERROR]     Abortion installation. python3-distutils missing!"
-                    exit 1
-                fi
+            warn "[WARN]      Continuing installation without python3-distutils..."
+            if ! apt install python3-setuptools -y; then
+                warn "[WARN]      Failed to install python3-setuptools!"
+                warn "[WARN]      Continuing installation without python3-setuptools..."
             fi
         fi
     else
@@ -569,8 +599,6 @@ function general_setup() {
     mkdir -p "$INSTALLFOLDERPATH"
     chown www-data:www-data "$INSTALLFOLDERPATH"
     chown www-data:www-data /var/www
-
-    PHOTOBOOTH_LOG="$INSTALLFOLDERPATH/private/install.log"
 }
 
 function add_git_remote() {
@@ -981,7 +1009,6 @@ detect_photobooth_install() {
                     PHOTOBOOTH_FOUND=true
                     INSTALLFOLDERPATH="$path"
                     info "### Photobooth installation found in path ${path}."
-                    PHOTOBOOTH_LOG="$INSTALLFOLDERPATH/private/install.log"
                 fi
             fi
         fi
@@ -998,6 +1025,10 @@ if [ "$UID" != 0 ]; then
     error "ERROR: Only root is allowed to execute the installer. Forgot sudo?"
     exit 1
 fi
+
+info "### Checking for installer updates..."
+self_update
+print_spaces
 
 if [ "$USERNAME" != "" ]; then
     check_username
@@ -1033,14 +1064,6 @@ else
     warn "Can not check Internet connection, wget missing!"
 fi
 
-if [ "$RUNNING_ON_PI" = true ]; then
-    if [ -f "/home/$USERNAME/.config/wayfire.ini" ]; then
-        WAYLAND_ENV=true
-    else
-        WAYLAND_ENV=false
-    fi
-fi
-
 ############################################################
 #                                                          #
 # Try updating Photobooth                                  #
@@ -1061,10 +1084,12 @@ if [ "$RUN_UPDATE" = true ]; then
 
     if [ "$GIT_INSTALL" = true ]; then
         detect_browser
-        if [ -d "/etc/xdg/autostart" ] && [ "$WEBBROWSER" != "unknown" ]; then
-            ask_kiosk_mode
-        else
+        if [ "$WAYLAND_ENV" = true ]; then
+            warn "### Kiosk-Mode can't be setup automatically on wayland!"
+        elif [ "$WEBBROWSER" = "unknown" ]; then
             warn "### No supported webbrowser found!"
+        else
+            ask_kiosk_mode
         fi
         print_spaces
 
@@ -1134,8 +1159,6 @@ if [ "$RUN_UPDATE" = true ]; then
         info "### avoid graphical issues."
         info "###"
         info "### Have fun with your Photobooth!"
-
-        cat "$PHOTOBOOTH_TMP_LOG" >>"$PHOTOBOOTH_LOG" || warn "WARN: failed to add log to ${PHOTOBOOTH_LOG}"
     else
         error "ERROR: Can not Update!"
     fi
@@ -1197,14 +1220,14 @@ fi
 print_spaces
 
 detect_browser
-if [ -d "/etc/xdg/autostart" ]; then
-    if [ "$WEBBROWSER" != "unknown" ]; then
-        ask_kiosk_mode
-    else
-        warn "### No supported webbrowser found!"
-    fi
-    print_spaces
+if [ "$WAYLAND_ENV" = true ]; then
+    warn "### Kiosk-Mode can't be setup automatically on wayland!"
+elif [ "$WEBBROWSER" = "unknown" ]; then
+    warn "### No supported webbrowser found!"
+else
+    ask_kiosk_mode
 fi
+print_spaces
 
 # Pi specific setup start
 if [ "$RUNNING_ON_PI" = true ]; then
@@ -1276,8 +1299,6 @@ if [ "$SETUP_CUPS" = true ]; then
 fi
 info "###"
 info "### Have fun with your Photobooth, but first restart your device!"
-
-cat "$PHOTOBOOTH_TMP_LOG" >>"$PHOTOBOOTH_LOG" || warn "WARN: failed to add log to ${PHOTOBOOTH_LOG}"
 
 echo -e "\033[0;33m"
 ask_yes_no "### Do you like to reboot now? [y/N] " "N"
