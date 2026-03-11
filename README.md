@@ -2,7 +2,7 @@
 
 ![](resources/img/logo/banner.png)
 
-A Photobooth web interface for Linux and Windows.
+A Photobooth web interface for Linux and Windows (often also called a "photo box" in some languages/regions).
 
 Photobooth was initially developped by Andre Rinas to use on a Raspberry Pi, you can find his source [here](https://github.com/andreknieriem/photobooth).
 In 2019 Andreas Blaesius picked up the work and continued to work on the source.
@@ -14,13 +14,8 @@ _(The full changelog can be found on [https://photoboothproject.github.io](https
 
 [![Translate on Crowdin](https://img.shields.io/badge/Traslate%20on-Crowdin-green.svg)](https://crowdin.com/project/photobooth)
 
-_Latest stable release:_
-[![Lint](https://github.com/PhotoboothProject/photobooth/actions/workflows/lint.yml/badge.svg?branch=stable4)](https://github.com/PhotoboothProject/photobooth/actions/workflows/lint.yml)
-[![gulp-sass](https://github.com/PhotoboothProject/photobooth/actions/workflows/gulp_sass.yml/badge.svg?branch=stable4)](https://github.com/PhotoboothProject/photobooth/actions/workflows/gulp_sass.yml)
-[![Build](https://github.com/PhotoboothProject/photobooth/actions/workflows/build.yml/badge.svg?branch=stable4)](https://github.com/PhotoboothProject/photobooth/actions/workflows/build.yml)
-
 _Latest development version:_
-[![Lint](https://github.com/PhotoboothProject/photobooth/actions/workflows/lint.yml/badge.svg)](https://github.com/PhotoboothProject/photobooth/actions/workflows/lint.yml)
+[![Lint](https://github.com/PhotoboothProject/photobooth/actions/workflows/linters.yaml/badge.svg)](https://github.com/PhotoboothProject/photobooth/actions/workflows/lint.yaml)
 [![gulp-sass](https://github.com/PhotoboothProject/photobooth/actions/workflows/gulp_sass.yml/badge.svg)](https://github.com/PhotoboothProject/photobooth/actions/workflows/gulp_sass.yml)
 [![Build](https://github.com/PhotoboothProject/photobooth/actions/workflows/build.yml/badge.svg)](https://github.com/PhotoboothProject/photobooth/actions/workflows/build.yml)
 
@@ -30,17 +25,13 @@ _Latest development version:_
 
 ## :gear: Supported Platforms and Cameras
 
-| Hardware-Platform      | Software-Platform                               | Supported Cameras                                                                                                                                                    |
-| ---------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Raspberry Pi 3 / 4 / 5 | Raspberry Pi OS 64bit Bullseye / Bookworm       | [Camera Modules](https://www.raspberrypi.com/documentation/accessories/camera.html), [gphoto2 DSLR](http://www.gphoto.org/proj/libgphoto2/support.php), webcam _\*2_ |
-| Raspberry Pi 3 / 4 / 5 | Raspberry Pi OS 32bit Bullseye / Bookworm _\*1_ | [Camera Modules](https://www.raspberrypi.com/documentation/accessories/camera.html), [gphoto2 DSLR](http://www.gphoto.org/proj/libgphoto2/support.php), webcam _\*2_ |
-| Generic PC             | Debian/Ubuntu                                   | [gphoto2 DSLR](http://www.gphoto.org/proj/libgphoto2/support.php), webcam _\*2_                                                                                      |
-| Generic PC             | Windows                                         | [digiCamControl](http://digicamcontrol.com/), wsl + Debian/Ubuntu subsystem, webcam _\*2_                                                                            |
+| Hardware-Platform  | Software-Platform                  | Supported Cameras                                                                                                                                                                     |
+|--------------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Raspberry Pi 3 / 4 / 5 | Raspberry Pi OS 64bit Bookworm / Trixie    | [Camera Modules](https://www.raspberrypi.com/documentation/accessories/camera.html), [gphoto2 DSLR](http://www.gphoto.org/proj/libgphoto2/support.php), webcam _*1_ |
+| Generic PC         | Debian/Ubuntu                      | [gphoto2 DSLR](http://www.gphoto.org/proj/libgphoto2/support.php), webcam _*1_                                                                                      |
+| Generic PC         | Windows                            | [digiCamControl](http://digicamcontrol.com/), webcam _*1_                                                                                                           |
 
-_\*1 On Raspberry Pi OS 32bit Bullseye you **must** add `arm_64bit=0` to your `/boot/config.txt` and reboot once before installing Photobooth._
-_The Raspberry Pi foundation uses a 64bit kernel while the system is 32bit. The Installation fails because the v4l2loopback module can't be compiled for a 32bit OS while using a 64bit kernel._
-
-_\*2 Capture from webcam is possible e.g. using [fswebcam](https://www.sanslogic.co.uk/fswebcam/), else it only works on access via [http://localhost](http://localhost)_
+_*1 Capture from webcam is possible using third party software e.g. [fswebcam](https://www.sanslogic.co.uk/fswebcam/) on Linux, else it only works on access via [http://localhost](http://localhost)_
 
 ## :gear: Prerequisites
 
@@ -48,7 +39,7 @@ _\*2 Capture from webcam is possible e.g. using [fswebcam](https://www.sanslogic
 | --------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Node.js   | >=v20.15.0       | Currently only v20 is tested. Our installer will check your Node.js version and suggest an update/downgrade if needed. Versions below v20 aren't supported anymore. |
 | npm       | >=v10.7.0        |                                                                                                                                                                     |
-| php       | >=v8.3           |                                                                                                                                                                     |
+| php       | >=v8.4           |                                                                                                                                                                     |
 | Webserver |                  | Apache or Nginx is needed. By default Apache webserver is installed by our installer.                                                                                 |
 
 ## :heart_eyes: Features
@@ -61,8 +52,9 @@ _\*2 Capture from webcam is possible e.g. using [fswebcam](https://www.sanslogic
 -   Access login via [localhost/login](http://localhost/login).
 -   Offline manual with settings explained at [localhost/manual](http://localhost/manual).
 -   Offline FAQ at [localhost/manual/faq](http://localhost/manual/faq).
--   Disk usage page, access via admin panel or directly at [localhost/admin/diskusage](http://localhost/admin/diskusage).
--   Settings can be changed via Admin Panel at ([localhost/admin](http://localhost/admin)):
+- Disk usage page, access via admin panel or directly at [localhost/admin/diskusage](http://localhost/admin/diskusage) (
+  or [localhost/photobooth/admin/diskusage](http://localhost/photobooth/admin/diskusage)).
+- Settings can be changed via Admin Panel at ([localhost/admin](http://localhost/admin)) (or [localhost/photobooth/admin](http://localhost/photobooth/admin)):
     -   Multi-language support:
         -   [Translate on Crowdin](https://crowdin.com/project/photobooth)
     -   Login to protect Admin Panel, Start page and/or Manual & FAQ can be enabled.
@@ -105,7 +97,23 @@ If you're having trouble or questions please take a look at our
 [FAQ](https://photoboothproject.github.io/faq/)
 before opening a new issue.
 
-For local testing and development, the docker setup can be used with `docker-compose up --build`.
+For local testing and development, the docker setup can be used with `docker compose up --build`.
+
+### Local dev with DDEV (alternative to docker compose)
+
+Use DDEV if you want an all-in-one local stack without touching your host PHP/Node toolchain (Docker Desktop/WSL2/macOS/Linux supported).
+
+1. Install [DDEV](https://ddev.readthedocs.io/en/stable/) and Docker, then `ddev start` in the repo.
+2. First run will install npm deps and run `npm run build` automatically; rerun manually with `ddev build` if needed.
+3. Access the app at http://photobooth.ddev.site:9080 (HTTPS https://photobooth.ddev.site:9443).
+4. Commands inside the web container: `ddev composer <cmd>` for PHP tools, `ddev npm <cmd>` for JS, `ddev qa` (composer cgl+lint+phpstan+phpunit), `ddev pre-commit` (eslint + full build + QA).
+5. Helpers: GET request helper auto-starts on port 9100 (`ddev getserver` to restart); asset watcher auto-starts (`ddev npm run watch:gulp` / `watch:lint` to run manually).
+
+Notes:
+
+- Matches the docker compose image (PHP 8.4, Apache, Node 20).
+- If DDEV isn’t installed, continue using `docker compose up --build` as documented above.
+- Quick validation: after `ddev start`, open the site URL, take a test photo, check gallery/slideshow, and run `ddev qa`; if assets look stale, run `ddev build`.
 
 ### :mag: Changelog
 

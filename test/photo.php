@@ -36,17 +36,17 @@ try {
     $imageHandler->debugLevel = $config['dev']['loglevel'];
     $imageHandler->imageModified = false;
 
-    $imageResource = $imageHandler->createFromImage(ImageUtility::getRandomImageFromPath('resources/img/demo'));
+    $imageResource = $imageHandler->createFromImage(ImageUtility::getDemoImages(1)[0]);
     if (!$imageResource) {
         throw new \Exception('Error creating image resource.');
     }
     if (class_exists('Photobooth\Processor\ImageProcessor')) {
         $processor = new ImageProcessor($imageHandler, $logger, $database, $vars, $config);
+        if (method_exists($processor, 'preImageProcessing')) {
+            [$imageHandler, $vars, $config, $imageResource] = $processor->preImageProcessing($imageHandler, $vars, $config, $imageResource);
+        }
     }
-    if ($processor !== null && $processor instanceof ImageProcessor && method_exists($processor, 'preImageProcessing')) {
-        list($imageHandler, $vars, $config, $imageResource) = $processor->preImageProcessing($imageHandler, $vars, $config, $imageResource);
-    }
-    $imageHandler->framePath = $config['picture']['frame'];
+    $imageHandler->framePath = PathUtility::getPublicPath($config['picture']['frame']);
 
     // apply filter
     if ($vars['imageFilter'] !== ImageFilterEnum::PLAIN) {
@@ -73,10 +73,10 @@ try {
         }
     }
 
-    if ($config['picture']['rotation'] !== '0') {
+    if ((int)$config['picture']['rotation'] !== 0) {
         $imageResource = $imageHandler->rotateResizeImage(
             image: $imageResource,
-            degrees: $config['picture']['rotation']
+            degrees: (int)$config['picture']['rotation'],
         );
         if (!$imageResource) {
             throw new \Exception('Error resizing resource.');
@@ -106,7 +106,7 @@ try {
     }
 
     if ($processor !== null && $processor instanceof ImageProcessor && method_exists($processor, 'postImageProcessing')) {
-        list($imageHandler, $vars, $config, $imageResource) = $processor->postImageProcessing($imageHandler, $vars, $config, $imageResource);
+        [$imageHandler, $vars, $config, $imageResource] = $processor->postImageProcessing($imageHandler, $vars, $config, $imageResource);
     }
 
     if ($config['textonpicture']['enabled']) {

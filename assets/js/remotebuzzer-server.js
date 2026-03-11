@@ -1,24 +1,17 @@
 const fs = require('fs');
+const path = require('path');
 
 /* VARIABLES */
+// eslint-disable-next-line no-unused-vars
 let collageInProgress = false,
     triggerArmed = true,
-    photolight,
-    pictureled,
-    collageled,
-    shutdownled,
-    rebootled,
-    printled,
-    videoled,
-    customled,
-    move2usbled,
-    copySucess = false;
+    copySuccess = false,
+    rearmTimer = null;
 
 const SYNC_DESTINATION_DIR = 'photobooth-pic-sync';
-let rotaryClkPin, rotaryDtPin;
 const { execSync, spawnSync } = require('child_process');
-const path = require('path');
 const { pid: PID, platform: PLATFORM } = process;
+const REARM_TIMEOUT_MS = 60000; // Fallback to re-arm trigger if no completion arrives
 
 /* LOGGING FUNCTION */
 const log = function (...optionalParams) {
@@ -36,6 +29,9 @@ const config = JSON.parse(stdoutConfig);
 const cmdEnvironmentg = 'bin/photobooth photobooth:environment:list json';
 const stdoutEnvironment = execSync(cmdEnvironmentg).toString();
 const environment = JSON.parse(stdoutEnvironment);
+
+/* USB INPUT LISTENER CONFIG */
+const inputDevicePath = config.remotebuzzer.input_device;
 
 /* WRITE PROCESS PID FILE */
 const writePIDFile = (filename) => {
@@ -68,44 +64,173 @@ process.on('uncaughtException', function (err) {
 const baseUrl = 'http://' + config.remotebuzzer.serverip + ':' + config.remotebuzzer.port;
 log('Server starting on ' + baseUrl);
 
+function triggerPictureFromInput() {
+    if (!config.remotebuzzer.usebuttons || !config.remotebuzzer.picturebutton) {
+        log('USB input ignored, hardware buttons or picture button disabled in config');
+
+        return;
+    }
+
+    if (!triggerArmed) {
+        log('USB input ignored, trigger not armed');
+
+        return;
+    }
+
+    if (!config.picture.enabled) {
+        log('USB input ignored, taking pictures disabled');
+
+        return;
+    }
+
+    photoboothAction('picture');
+}
+
+function triggerActionFromInput(action) {
+    switch (action) {
+        case 'picture':
+            triggerPictureFromInput();
+            break;
+        case 'collage':
+            if (!config.remotebuzzer.usebuttons || !config.remotebuzzer.collagebutton) {
+                log('USB input ignored, hardware buttons or collage button disabled in config');
+            } else if (!triggerArmed) {
+                log('USB input ignored, trigger not armed');
+            } else if (!config.collage.enabled) {
+                log('USB input ignored, collage disabled');
+            } else {
+                photoboothAction('collage');
+            }
+            break;
+        case 'custom':
+            if (!config.remotebuzzer.usebuttons || !config.remotebuzzer.custombutton) {
+                log('USB input ignored, hardware buttons or custom button disabled in config');
+            } else if (!triggerArmed) {
+                log('USB input ignored, trigger not armed');
+            } else if (!config.custom.enabled) {
+                log('USB input ignored, custom action disabled');
+            } else {
+                photoboothAction('custom');
+            }
+            break;
+        case 'video':
+            if (!config.remotebuzzer.usebuttons || !config.remotebuzzer.videobutton) {
+                log('USB input ignored, hardware buttons or video button disabled in config');
+            } else if (!triggerArmed) {
+                log('USB input ignored, trigger not armed');
+            } else if (!config.video.enabled) {
+                log('USB input ignored, video disabled');
+            } else {
+                photoboothAction('video');
+            }
+            break;
+        case 'print':
+            if (!config.remotebuzzer.usebuttons || !config.remotebuzzer.printbutton) {
+                log('USB input ignored, hardware buttons or print button disabled in config');
+            } else if (!triggerArmed) {
+                log('USB input ignored, trigger not armed');
+            } else {
+                photoboothAction('print');
+            }
+            break;
+        default:
+            log(`USB input ignored, unsupported action [${action}]`);
+    }
+}
+
+function startUsbInputListener() {
+    const bindings = [];
+
+    const keyToInt = (key) => (key ? parseInt(key, 10) : 0);
+
+    const pushBinding = (code, action) => {
+        if (code && !Number.isNaN(code)) {
+            bindings.push({ code, action });
+        }
+    };
+
+    pushBinding(keyToInt(config.picture.key), 'picture');
+    pushBinding(keyToInt(config.collage.key), 'collage');
+    pushBinding(keyToInt(config.custom.key), 'custom');
+    pushBinding(keyToInt(config.video.key), 'video');
+    pushBinding(keyToInt(config.print.key), 'print');
+
+    if (!inputDevicePath || bindings.length === 0) {
+        return;
+    }
+
+    const EVENT_SIZE = 24; // timeval (16 bytes) + type (2) + code (2) + value (4)
+    const stream = fs.createReadStream(inputDevicePath, { highWaterMark: EVENT_SIZE * 8 });
+
+    stream.on('data', (chunk) => {
+        for (let offset = 0; offset + EVENT_SIZE <= chunk.length; offset += EVENT_SIZE) {
+            const type = chunk.readUInt16LE(offset + 16);
+            const code = chunk.readUInt16LE(offset + 18);
+            const value = chunk.readInt32LE(offset + 20);
+
+            // EV_KEY press events use type 1, value 1 for key down, 0 for up
+            if (type === 1 && value === 1) {
+                const binding = bindings.find((b) => b.code === code);
+                if (binding) {
+                    log(`USB input matched keycode ${code}, triggering action [${binding.action}]`);
+                    triggerActionFromInput(binding.action);
+                }
+            }
+        }
+    });
+
+    stream.on('error', (err) => {
+        log(`USB input listener error on [${inputDevicePath}]: ${err.message}`);
+    });
+
+    const codes = bindings.map((b) => b.code).join(', ');
+    log(`Listening for USB input on [${inputDevicePath}] keycodes [${codes}]`);
+}
+
+if (inputDevicePath) {
+    startUsbInputListener();
+}
+
+function armTrigger() {
+    triggerArmed = true;
+    if (rearmTimer) {
+        clearTimeout(rearmTimer);
+        rearmTimer = null;
+    }
+}
+
+function disarmTrigger() {
+    triggerArmed = false;
+    if (rearmTimer) {
+        clearTimeout(rearmTimer);
+    }
+    rearmTimer = setTimeout(() => {
+        triggerArmed = true;
+        log(`Re-arming trigger after timeout (${REARM_TIMEOUT_MS}ms)`);
+        rearmTimer = null;
+    }, REARM_TIMEOUT_MS);
+}
+
 function photoboothAction(type) {
     switch (type) {
         case 'picture':
-            triggerArmed = false;
+            disarmTrigger();
             collageInProgress = false;
             log('Photobooth trigger PICTURE : [ photobooth-socket ] => [ All Clients ]: command [ picture ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.pictureled) {
-                pictureled.writeSync(1);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                photolight.writeSync(1);
-            }
             ioServer.emit('photobooth-socket', 'start-picture');
             break;
 
         case 'custom':
-            triggerArmed = false;
+            disarmTrigger();
             collageInProgress = false;
             log('Photobooth trigger CUSTOM : [ photobooth-socket ]  => [ All Clients ]: command [ custom ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.customled) {
-                customled.writeSync(1);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                photolight.writeSync(1);
-            }
             ioServer.emit('photobooth-socket', 'start-custom');
             break;
 
         case 'video':
-            triggerArmed = false;
+            disarmTrigger();
             collageInProgress = false;
             log('Photobooth trigger VIDEO : [ photobooth-socket ]  => [ All Clients ]: command [ video ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.videoled) {
-                videoled.writeSync(1);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                photolight.writeSync(1);
-            }
             ioServer.emit('photobooth-socket', 'start-video');
             break;
 
@@ -113,22 +238,13 @@ function photoboothAction(type) {
             triggerArmed = false;
             collageInProgress = false;
             log('Photobooth trigger MOVE2USB : [ photobooth-socket ]  => [ All Clients ]: command [ move2usb ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.move2usbled) {
-                move2usbled.writeSync(1);
-            }
             move2usbAction();
             break;
 
         case 'collage':
-            triggerArmed = false;
+            disarmTrigger();
             collageInProgress = true;
             log('Photobooth trigger COLLAGE : [ photobooth-socket ]  => [ All Clients ]: command [ collage ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.collageled) {
-                collageled.writeSync(1);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                photolight.writeSync(1);
-            }
             ioServer.emit('photobooth-socket', 'start-collage');
             break;
 
@@ -138,39 +254,15 @@ function photoboothAction(type) {
             break;
 
         case 'completed':
-            triggerArmed = true;
+            armTrigger();
             collageInProgress = false;
             log('Photobooth activity completed : [ photobooth-socket ] => [ All Clients ]: command [ completed ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.pictureled) {
-                pictureled.writeSync(0);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                photolight.writeSync(0);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.move2usbled) {
-                move2usbled.writeSync(0);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.collageled) {
-                collageled.writeSync(0);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.videoled) {
-                videoled.writeSync(0);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.customled) {
-                customled.writeSync(0);
-            }
-            if (config.remotebuzzer.useleds && config.remotebuzzer.printled) {
-                printled.writeSync(0);
-            }
             ioServer.emit('photobooth-socket', 'completed');
             break;
 
         case 'print':
-            triggerArmed = false;
+            disarmTrigger();
             log('Photobooth trigger PRINT : [ photobooth-socket ]  => [ All Clients ]: command [ print ]');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.printled) {
-                printled.writeSync(1);
-            }
             ioServer.emit('photobooth-socket', 'print');
             break;
 
@@ -205,7 +297,10 @@ const requestListener = function (req, res) {
         res.end(content);
     }
 
-    switch (req.url) {
+    const urlObj = new URL(req.url, 'http://' + config.webserver.ip);
+    const queryParams = urlObj.searchParams;
+
+    switch (urlObj.pathname) {
         case '/':
             log('http: GET /');
             sendText(
@@ -217,6 +312,7 @@ const requestListener = function (req, res) {
                 <li>Trigger print: <a href="${baseUrl}/commands/start-print" target="_blank">${baseUrl}/commands/start-print</a></li>
                 <li>Trigger video: <a href="${baseUrl}/commands/start-video" target="_blank">${baseUrl}/commands/start-video</a></li>
                 <li>Trigger picture move to USB: <a href="${baseUrl}/commands/start-move2usb" target="_blank">${baseUrl}/commands/start-move2usb</a></li>
+                <li>Increase the printlimit by i <a href="${baseUrl}/commands/increase-print-limit?i=1" target="_blank">${baseUrl}/commands/increase-print-limit?i=1</a></li>
             </ul>
             <h1>Rotary Endpoints</h1>
             <ul>
@@ -232,6 +328,25 @@ const requestListener = function (req, res) {
                 'text/html'
             );
             break;
+        case '/commands/increase-print-limit':
+            log('http: GET /commands/increase-print-limit');
+            if (config.remotebuzzer.usebuttons) {
+                if (config.print.from_result || config.print.from_gallery) {
+                    let i = 1;
+                    let j = parseInt(queryParams.get('i'), 10);
+                    if (j) {
+                        i = j;
+                    }
+                    http.get(config.webserver.url + 'api/printLimit.php?increaseCount=' + i);
+                    sendText(`Increased print limit by ${i}`);
+                } else {
+                    sendText('Please enable print from results screen or print from gallery.');
+                }
+            } else {
+                sendText('Please enable Hardware Button support!');
+            }
+            break;
+
         case '/commands/start-picture':
             log('http: GET /commands/start-picture');
             if (config.remotebuzzer.usebuttons && config.remotebuzzer.picturebutton) {
@@ -430,49 +545,7 @@ ioServer.on('connection', function (client) {
                 break;
 
             case 'collage-wait-for-next':
-                triggerArmed = true;
-                break;
-
-            case 'photo':
-                if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                    photolight.writeSync(1);
-                }
-                if (config.remotebuzzer.useleds && config.remotebuzzer.pictureled) {
-                    pictureled.writeSync(1);
-                }
-                break;
-
-            case 'collage':
-                if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                    photolight.writeSync(1);
-                }
-                if (config.remotebuzzer.useleds && config.remotebuzzer.collageled) {
-                    collageled.writeSync(1);
-                }
-                break;
-
-            case 'custom':
-                if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                    photolight.writeSync(1);
-                }
-                if (config.remotebuzzer.useleds && config.remotebuzzer.customled) {
-                    customled.writeSync(1);
-                }
-                break;
-
-            case 'video':
-                if (config.remotebuzzer.useleds && config.remotebuzzer.photolight) {
-                    photolight.writeSync(1);
-                }
-                if (config.remotebuzzer.useleds && config.remotebuzzer.videoled) {
-                    videoled.writeSync(1);
-                }
-                break;
-
-            case 'print':
-                if (config.remotebuzzer.useleds && config.remotebuzzer.printled) {
-                    printled.writeSync(1);
-                }
+                armTrigger();
                 break;
 
             default:
@@ -498,784 +571,7 @@ server.listen(config.remotebuzzer.port, () => {
     log('socket.io server started');
 });
 
-/*
- ** GPIO HANDLING
- */
-
-/* SANITY CHECKS */
-function gpioPuSanity(gpioconfig) {
-    try {
-        if (isNaN(gpioconfig)) {
-            throw new Error(gpioconfig + ' is not a valid number');
-        }
-
-        const configPath = fs.existsSync('/boot/firmware/config.txt')
-            ? '/boot/firmware/config.txt'
-            : fs.existsSync('/boot/config.txt')
-              ? '/boot/config.txt'
-              : (() => {
-                    throw new Error('Configuration file not found');
-                })();
-
-        const cmd = 'sed -n "s/^gpio=\\(.*\\)=pu/\\1/p" ' + configPath;
-        const stdout = execSync(cmd).toString();
-
-        if (!stdout.split(',').find((el) => el == gpioconfig)) {
-            log('GPIO' + gpioconfig + ' is not configured as PULLUP in ' + configPath + ' - see FAQ for details');
-        }
-
-        return true;
-    } catch (error) {
-        log('Error: ', error.message);
-
-        return false;
-    }
-}
-
-function gpioOpSanity(gpioconfig) {
-    try {
-        if (isNaN(gpioconfig)) {
-            throw new Error(gpioconfig + ' is not a valid number');
-        }
-
-        const configPath = fs.existsSync('/boot/firmware/config.txt')
-            ? '/boot/firmware/config.txt'
-            : fs.existsSync('/boot/config.txt')
-              ? '/boot/config.txt'
-              : (() => {
-                    throw new Error('Configuration file not found');
-                })();
-
-        const cmd = 'sed -n "s/^gpio=\\(.*\\)=op/\\1/p" ' + configPath;
-        const stdout = execSync(cmd).toString();
-
-        if (!stdout.split(',').find((el) => el == gpioconfig)) {
-            log('GPIO' + gpioconfig + ' is not configured as OUTPUT in ' + configPath + ' - see FAQ for details');
-        }
-
-        return true;
-    } catch (error) {
-        log('Error: ', error.message);
-
-        return false;
-    }
-}
-
-const Gpio = require('onoff').Gpio;
-const useGpio = config.remotebuzzer.usegpio && Gpio.accessible;
-
-/* BUTTON SEMAPHORE HELPER FUNCTION */
-function buttonActiveCheck(gpio, value) {
-    /*
-     * value = 0 : button is pressed (connected to GND - pulled down)
-     * value = 1 : button is not pressed (pull-up)
-     */
-
-    /* init */
-    if (typeof buttonActiveCheck.buttonIsPressed == 'undefined') {
-        buttonActiveCheck.buttonIsPressed = 0;
-    }
-
-    /* clean state - no button pressed - activate lock */
-    if (buttonActiveCheck.buttonIsPressed == 0 && !value) {
-        buttonActiveCheck.buttonIsPressed = gpio;
-        buttonTimer(Date.now('millis'));
-
-        return false;
-    }
-
-    /* clean state - locked button release - release lock */
-    if (buttonActiveCheck.buttonIsPressed == gpio && value) {
-        buttonActiveCheck.buttonIsPressed = 0;
-        buttonTimer(Date.now('millis'));
-
-        return false;
-    }
-
-    /* forced reset */
-    if (gpio == -1 && value == -1) {
-        buttonActiveCheck.buttonIsPressed = 0;
-        buttonTimer(0);
-
-        return false;
-    }
-
-    /* error state - do nothing */
-    log(
-        'buttonActiveCheck WARNING - requested GPIO ',
-        gpio,
-        ', for value ',
-        value,
-        'but buttonIsPressed:',
-        buttonActiveCheck.buttonIsPressed,
-        ' Please consider to add an external pull-up resistor to all your input GPIOs, this might help to eliminate this warning. Regardless of this warning, Photobooth should be fully functional.'
-    );
-
-    return true;
-}
-
-/* TIMER HELPER FUNCTION */
-function buttonTimer(millis) {
-    /* init */
-    if (typeof buttonTimer.millis == 'undefined' || millis === 0) {
-        buttonTimer.millis = 0;
-        buttonTimer.duration = 0;
-    }
-
-    /* return timer value */
-    if (typeof millis == 'undefined') {
-        return buttonTimer.duration;
-    }
-
-    /* start timer */
-    if (buttonTimer.millis === 0) {
-        buttonTimer.millis = millis;
-
-        return true;
-    }
-
-    /* too long button press */
-    if (millis - buttonTimer.millis > 10000) {
-        buttonTimer.millis = 0;
-        buttonTimer.duration = 0;
-
-        return false;
-    }
-
-    /* end timer */
-    if (millis - buttonTimer.millis > 0) {
-        buttonTimer.duration = millis - buttonTimer.millis;
-        buttonTimer.millis = 0;
-
-        return buttonTimer.duration;
-    }
-
-    /* error state */
-    log('buttonTimer error state encountered - millis: ', millis);
-
-    return false;
-}
-
-/* WATCH FUNCTION PICTURE BUTTON WITH LONGPRESS FOR COLLAGE*/
-const watchPictureGPIOwithCollage = function watchPictureGPIOwithCollage(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.picturegpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (!timeElapsed) {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.picturegpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-        } else if (timeElapsed <= config.remotebuzzer.collagetime * 1000 && !collageInProgress) {
-            /* Start Picture */
-            log('GPIO', config.remotebuzzer.picturegpio, '- Picture button released - normal -', timeElapsed, ' [ms] ');
-            photoboothAction('picture');
-        } else if (collageInProgress) {
-            /* Next Collage Picture*/
-            log('GPIO', config.remotebuzzer.picturegpio, '- Picture button released - long -', timeElapsed, ' [ms] ');
-            photoboothAction('collage-next');
-        } else {
-            /* Start Collage */
-            log('GPIO', config.remotebuzzer.picturegpio, '- Picture button released - long -', timeElapsed, ' [ms] ');
-            photoboothAction('collage');
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO ', config.remotebuzzer.picturegpio, ' - Picture button pressed');
-    }
-};
-
-/* WATCH FUNCTION PICTURE BUTTON */
-const watchPictureGPIO = function watchPictureGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.picturegpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.picturegpio, '- Picture button released - normal -', timeElapsed, ' [ms] ');
-            /* Start Picture */
-            if (!collageInProgress) {
-                photoboothAction('picture');
-            }
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.picturegpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.pictureled) {
-                pictureled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.picturegpio, '- Picture button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.pictureled) {
-            pictureled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION COLLAGE BUTTON */
-const watchCollageGPIO = function watchCollageGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.collagegpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.collagegpio, '- Collage button released ', timeElapsed, ' [ms] ');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.collageled) {
-                collageled.writeSync(0);
-            }
-
-            /* Collage Trigger Next */
-            if (collageInProgress) {
-                photoboothAction('collage-next');
-            } else {
-                /* Start Collage */
-                photoboothAction('collage');
-            }
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.collagegpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.collageled) {
-                collageled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.collagegpio, '- Collage button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.collageled) {
-            collageled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION CUSTOM BUTTON */
-const watchCustomGPIO = function watchCustomGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.customgpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.customgpio, '- Custom button released ', timeElapsed, ' [ms] ');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.customled) {
-                customled.writeSync(0);
-            }
-
-            /* Start Custom */
-            photoboothAction('custom');
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.customgpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.customled) {
-                customled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.customgpio, '- Custom button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.customled) {
-            customled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION VIDEO BUTTON */
-const watchVideoGPIO = function watchVideoGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.videogpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.videogpio, '- Video button released ', timeElapsed, ' [ms] ');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.videoled) {
-                videoled.writeSync(0);
-            }
-
-            /* Start Video */
-            photoboothAction('video');
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.videogpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.videoled) {
-                videoled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.videogpio, '- Video button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.videoled) {
-            videoled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION SHUTDOWN BUTTON */
-const watchShutdownGPIO = function watchShutdownGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.shutdowngpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.shutdowngpio, '- Shutdown button released ', timeElapsed, ' [ms] ');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.shutdownled) {
-                shutdownled.writeSync(0);
-            }
-
-            if (timeElapsed >= config.remotebuzzer.shutdownholdtime * 1000) {
-                log('System shutdown initiated - bye bye');
-                /*  Initiate system shutdown */
-                const cmd = 'sudo ' + config.commands.shutdown;
-                execSync(cmd);
-            }
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.shutdowngpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.shutdownled) {
-                shutdownled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.shutdowngpio, '- Shutdown button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.shutdownled) {
-            shutdownled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION REBOOT BUTTON */
-const watchRebootGPIO = function watchRebootGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.rebootgpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.rebootgpio, '- Reboot button released ', timeElapsed, ' [ms] ');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.rebootled) {
-                rebootled.writeSync(0);
-            }
-
-            if (timeElapsed >= config.remotebuzzer.rebootholdtime * 1000) {
-                log('System reboot initiated - bye bye');
-                /*  Initiate system reboot */
-                const cmd = 'sudo ' + config.commands.reboot;
-                execSync(cmd);
-            }
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.rebootgpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.rebootled) {
-                rebootled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.rebootgpio, '- Reboot button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.rebootled) {
-            rebootled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION PRINT BUTTON */
-const watchPrintGPIO = function watchPrintGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.printgpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.printgpio, '- Print button released ', timeElapsed, ' [ms] ');
-            if (config.remotebuzzer.useleds && config.remotebuzzer.printled) {
-                printled.writeSync(0);
-            }
-
-            /* Start Print */
-            photoboothAction('print');
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.printgpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.printled) {
-                printled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.printgpio, '- Print button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.printled) {
-            printled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION MOVE2USB BUTTON */
-const watchMove2usbGPIO = function watchMove2usbGPIO(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed || buttonActiveCheck(config.remotebuzzer.move2usbgpio, gpioValue)) {
-        return;
-    }
-
-    if (gpioValue) {
-        /* Button released - raising flank detected */
-        const timeElapsed = buttonTimer();
-
-        if (timeElapsed) {
-            log('GPIO', config.remotebuzzer.move2usbgpio, '- Move2USB button released ', timeElapsed, ' [ms] ');
-            photoboothAction('move2usb');
-        } else {
-            /* Too long button press - timeout - reset server state machine */
-            log('GPIO', config.remotebuzzer.move2usbgpio, '- too long button press - Reset server state machine');
-            photoboothAction('reset');
-            buttonActiveCheck(-1, -1);
-            if (config.remotebuzzer.useleds && config.remotebuzzer.move2usbled) {
-                move2usbled.writeSync(0);
-            }
-        }
-    } else {
-        /* Button pressed - falling flank detected (pull to ground) */
-        log('GPIO', config.remotebuzzer.move2usbgpio, '- Move2USB button pressed');
-        if (config.remotebuzzer.useleds && config.remotebuzzer.move2usbled) {
-            move2usbled.writeSync(1);
-        }
-    }
-};
-
-/* WATCH FUNCTION ROTARY CLK */
-const watchRotaryClk = function watchRotaryClk(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed) {
-        return;
-    }
-
-    if (gpioValue) {
-        if (rotaryDtPin) {
-            /* rotation */
-            photoboothAction('rotary-cw');
-        } else {
-            rotaryClkPin = true;
-        }
-    } else {
-        rotaryClkPin = false;
-    }
-};
-
-/* WATCH FUNCTION ROTARY DT */
-const watchRotaryDt = function watchRotaryDt(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed) {
-        return;
-    }
-
-    if (gpioValue) {
-        if (rotaryClkPin) {
-            /* rotation */
-            photoboothAction('rotary-ccw');
-        } else {
-            rotaryDtPin = true;
-        }
-    } else {
-        rotaryDtPin = false;
-    }
-};
-
-/* WATCH FUNCTION ROTARY BUTTON */
-const watchRotaryBtn = function watchRotaryBtn(err, gpioValue) {
-    if (err) {
-        throw err;
-    }
-
-    /* if there is some activity in progress ignore GPIO pin for now */
-    if (!triggerArmed) {
-        return;
-    }
-
-    if (gpioValue) {
-        photoboothAction('rotary-btn-press');
-    }
-};
-
-/* INIT ONOFF LIBRARY AND LINK CALLBACK FUNCTIONS */
-if (useGpio) {
-    /* ROTARY ENCODER MODE */
-    if (
-        config.remotebuzzer.userotary &&
-        gpioPuSanity(config.remotebuzzer.rotaryclkgpio) &&
-        gpioPuSanity(config.remotebuzzer.rotarydtgpio) &&
-        gpioPuSanity(config.remotebuzzer.rotarybtngpio)
-    ) {
-        /* ROTARY ENCODER MODE */
-        log('ROTARY support active');
-        const rotaryClk = new Gpio(config.remotebuzzer.rotaryclkgpio, 'in', 'both');
-        const rotaryDt = new Gpio(config.remotebuzzer.rotarydtgpio, 'in', 'both');
-        const rotaryBtn = new Gpio(config.remotebuzzer.rotarybtngpio, 'in', 'both', {
-            debounceTimeout: config.remotebuzzer.debounce
-        });
-
-        rotaryClkPin = 0;
-        rotaryDtPin = 0;
-
-        log(
-            'Looking for Rotary Encoder connected to GPIOs ',
-            config.remotebuzzer.rotaryclkgpio,
-            '(CLK) ',
-            config.remotebuzzer.rotarydtgpio,
-            '(DT) ',
-            config.remotebuzzer.rotarybtngpio,
-            '(BTN)'
-        );
-
-        rotaryClk.watch(watchRotaryClk);
-        rotaryDt.watch(watchRotaryDt);
-        rotaryBtn.watch(watchRotaryBtn);
-    }
-
-    /* NORMAL BUTTON SUPPORT */
-    if (config.remotebuzzer.usebuttons) {
-        log('BUTTON support active');
-        if (config.remotebuzzer.picturebutton && gpioPuSanity(config.remotebuzzer.picturegpio)) {
-            const pictureButton = new Gpio(config.remotebuzzer.picturegpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Picture Button on Raspberry GPIO', config.remotebuzzer.picturegpio);
-            if (!config.remotebuzzer.collagebutton && config.collage.enabled) {
-                log('config: collage enabled for picture button');
-                pictureButton.watch(watchPictureGPIOwithCollage);
-            } else {
-                pictureButton.watch(watchPictureGPIO);
-            }
-        }
-
-        /* COLLAGE BUTTON */
-        if (
-            config.collage.enabled &&
-            config.remotebuzzer.collagebutton &&
-            gpioPuSanity(config.remotebuzzer.collagegpio)
-        ) {
-            const collageButton = new Gpio(config.remotebuzzer.collagegpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Collage Button on Raspberry GPIO', config.remotebuzzer.collagegpio);
-            collageButton.watch(watchCollageGPIO);
-        }
-
-        /* CUSTOM BUTTON */
-        if (config.remotebuzzer.custombutton && gpioPuSanity(config.remotebuzzer.customgpio)) {
-            const customButton = new Gpio(config.remotebuzzer.customgpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Custom Button on Raspberry GPIO', config.remotebuzzer.customgpio);
-            customButton.watch(watchCustomGPIO);
-        }
-
-        /* VIDEO BUTTON */
-        if (config.remotebuzzer.videobutton && gpioPuSanity(config.remotebuzzer.videogpio)) {
-            const videoButton = new Gpio(config.remotebuzzer.videogpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Video Button on Raspberry GPIO', config.remotebuzzer.videogpio);
-            videoButton.watch(watchVideoGPIO);
-        }
-
-        /* SHUTDOWN BUTTON */
-        if (config.remotebuzzer.shutdownbutton && gpioPuSanity(config.remotebuzzer.shutdowngpio)) {
-            const shutdownButton = new Gpio(config.remotebuzzer.shutdowngpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Shutdown Button on Raspberry GPIO', config.remotebuzzer.shutdowngpio);
-            shutdownButton.watch(watchShutdownGPIO);
-        }
-
-        /* REBOOT BUTTON */
-        if (config.remotebuzzer.rebootbutton && gpioPuSanity(config.remotebuzzer.rebootgpio)) {
-            const rebootButton = new Gpio(config.remotebuzzer.rebootgpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Reboot Button on Raspberry GPIO', config.remotebuzzer.rebootgpio);
-            rebootButton.watch(watchRebootGPIO);
-        }
-
-        /* PRINT BUTTON */
-        if (config.remotebuzzer.printbutton && gpioPuSanity(config.remotebuzzer.printgpio)) {
-            const printButton = new Gpio(config.remotebuzzer.printgpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Print Button on Raspberry GPIO', config.remotebuzzer.printgpio);
-            printButton.watch(watchPrintGPIO);
-        }
-
-        /* Move2USB BUTTON */
-        if (config.remotebuzzer.move2usb != 'disabled' && gpioPuSanity(config.remotebuzzer.move2usbgpio)) {
-            const move2usbButton = new Gpio(config.remotebuzzer.move2usbgpio, 'in', 'both', {
-                debounceTimeout: config.remotebuzzer.debounce
-            });
-            log('Looking for Move2USB Button on Raspberry GPIO', config.remotebuzzer.move2usbgpio);
-            move2usbButton.watch(watchMove2usbGPIO);
-        }
-
-        /* LED OUT SUPPORT */
-        if (config.remotebuzzer.useleds) {
-            /* Photo Light */
-            if (config.remotebuzzer.photolight && gpioOpSanity(config.remotebuzzer.photolightgpio)) {
-                log('OUT for Photo Light on Raspberry GPIO', config.remotebuzzer.photolightgpio);
-                photolight = new Gpio(config.remotebuzzer.photolightgpio, 'out');
-            }
-
-            /* LED PICTURE BUTTON */
-            if (config.remotebuzzer.pictureled && gpioOpSanity(config.remotebuzzer.pictureledgpio)) {
-                pictureled = new Gpio(config.remotebuzzer.pictureledgpio, 'out');
-                log('LED for Picture Button on Raspberry GPIO', config.remotebuzzer.pictureledgpio);
-            }
-
-            /* LED COLLAGE BUTTON */
-            if (config.remotebuzzer.collageled && gpioOpSanity(config.remotebuzzer.collageledgpio)) {
-                log('LED for Collage Button on Raspberry GPIO', config.remotebuzzer.collageledgpio);
-                collageled = new Gpio(config.remotebuzzer.collageledgpio, 'out');
-            }
-
-            /* LED CUSTOM BUTTON */
-            if (config.remotebuzzer.customled && gpioOpSanity(config.remotebuzzer.customledgpio)) {
-                log('LED for Custom Button on Raspberry GPIO', config.remotebuzzer.customledgpio);
-                customled = new Gpio(config.remotebuzzer.customledgpio, 'out');
-            }
-
-            /* LED VIDEO BUTTON */
-            if (config.remotebuzzer.videoled && gpioOpSanity(config.remotebuzzer.videoledgpio)) {
-                log('LED for Video Button on Raspberry GPIO', config.remotebuzzer.videoledgpio);
-                videoled = new Gpio(config.remotebuzzer.videoledgpio, 'out');
-            }
-
-            /* LED SHUTDOWN BUTTON */
-            if (config.remotebuzzer.shutdownled && gpioOpSanity(config.remotebuzzer.shutdownledgpio)) {
-                log('LED for Shutdown Button on Raspberry GPIO', config.remotebuzzer.shutdownledgpio);
-                shutdownled = new Gpio(config.remotebuzzer.shutdownledgpio, 'out');
-            }
-
-            /* LED REBOOT BUTTON */
-            if (config.remotebuzzer.rebootled && gpioOpSanity(config.remotebuzzer.rebootledgpio)) {
-                log('LED for Reboot Button on Raspberry GPIO', config.remotebuzzer.rebootledgpio);
-                rebootled = new Gpio(config.remotebuzzer.rebootledgpio, 'out');
-            }
-
-            /* LED PRINT BUTTON */
-            if (config.remotebuzzer.printled && gpioOpSanity(config.remotebuzzer.printledgpio)) {
-                log('LED for Print Button on Raspberry GPIO', config.remotebuzzer.printledgpio);
-                printled = new Gpio(config.remotebuzzer.printledgpio, 'out');
-            }
-
-            /* LED Move2USB BUTTON */
-            if (config.remotebuzzer.move2usbled && gpioOpSanity(config.remotebuzzer.move2usbledgpio)) {
-                log('LED for Move2USB Button on Raspberry GPIO', config.remotebuzzer.move2usbledgpio);
-                move2usbled = new Gpio(config.remotebuzzer.move2usbledgpio, 'out');
-            }
-        }
-    }
-} else if (config.remotebuzzer.usegpio && !Gpio.accessible) {
-    log('GPIO enabled but GPIO not accessible!');
-}
-
-/* Move2USB */
 function move2usbAction() {
-    if (config.remotebuzzer.useleds && config.remotebuzzer.move2usbled) {
-        move2usbled.writeSync(1);
-    }
-
     const parseConfig = () => {
         try {
             return {
@@ -1426,15 +722,15 @@ function move2usbAction() {
         log('Sync completed');
 
         if (fs.existsSync(path.join(drive.mountpoint, SYNC_DESTINATION_DIR + '/data/copy.chk'))) {
-            copySucess = true;
+            copySuccess = true;
         } else {
             log(' ');
             log(
-                '[ERROR] Sync error, sync might be not sucessfull. Checkfile does not exist:',
+                '[ERROR] Sync error, sync might be not successfull. Checkfile does not exist:',
                 path.join(drive.mountpoint, SYNC_DESTINATION_DIR + '/data/copy.chk')
             );
             log(' ');
-            copySucess = false;
+            copySuccess = false;
 
             return;
         }
@@ -1466,7 +762,7 @@ function move2usbAction() {
 
             return;
         }
-        if (!copySucess) {
+        if (!copySuccess) {
             log('[Warning] Sync was unsuccessful. No files will be deleted.');
 
             return;
@@ -1508,7 +804,7 @@ function move2usbAction() {
 
             return;
         }
-        if (!copySucess) {
+        if (!copySuccess) {
             log('[Warning] Sync was unsuccessful. No files will be deleted.');
 
             return;
@@ -1561,23 +857,19 @@ function move2usbAction() {
 
     unmountDrive();
 
-    if (copySucess && config.remotebuzzer.move2usb == 'move') {
+    if (copySuccess && config.remotebuzzer.move2usb == 'move') {
         deleteFiles({ dataAbsPath: parsedConfig.dataAbsPath });
     } else {
         log('[Info] move2USB mode "copy" or Sync unsuccessful. No files will be deleted.');
     }
 
-    if (copySucess && config.remotebuzzer.move2usb == 'move') {
+    if (copySuccess && config.remotebuzzer.move2usb == 'move') {
         deleteDatabase({
             dataAbsPath: parsedConfig.dataAbsPath,
             dbName: parsedConfig.dbName
         });
     } else {
         log('[Info] move2USB mode "copy" or Sync unsuccessful. Database will not be deleted.');
-    }
-
-    if (config.remotebuzzer.useleds && config.remotebuzzer.move2usbled) {
-        move2usbled.writeSync(0);
     }
 
     photoboothAction('completed');

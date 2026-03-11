@@ -11,12 +11,18 @@ use Photobooth\Service\LoggerService;
 
 header('Content-Type: application/json');
 
+checkCsrfOrFail($_POST);
+
 $logger = LoggerService::getInstance()->getLogger('main');
 $logger->debug(basename($_SERVER['PHP_SELF']));
 
 try {
     if (!isset($_POST['style'])) {
         throw new \Exception('No style provided');
+    }
+
+    if (isset($_POST['collageLimit'])) {
+        $config['collage']['limit'] = $_POST['collageLimit'];
     }
 
     if (!empty($_POST['file']) && (preg_match('/^[a-z0-9_]+\.jpg$/', $_POST['file']) || preg_match('/^[a-z0-9_]+\.(mp4)$/', $_POST['file']))) {
@@ -88,6 +94,8 @@ try {
     } else {
         if ($_POST['style'] === 'custom') {
             $captureHandler->captureCmd = $config['commands']['take_custom'];
+        } elseif ($_POST['style'] === 'collage' && !empty($config['commands']['take_collage'])) {
+            $captureHandler->captureCmd = $config['commands']['take_collage'];
         } else {
             $captureHandler->captureCmd = $config['commands']['take_picture'];
         }

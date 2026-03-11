@@ -3,6 +3,8 @@
 namespace Photobooth;
 
 use GdImage;
+use Photobooth\Service\ImageMetadataCacheService;
+use Photobooth\Utility\FontUtility;
 use Photobooth\Utility\ImageUtility;
 use Photobooth\Utility\PathUtility;
 use Photobooth\Utility\QrCodeUtility;
@@ -94,6 +96,51 @@ class Image
      * Vertical spacing between lines of text
      */
     public int $textLineSpacing = 90;
+
+    /**
+     * Zone-based text alignment mode (when template uses text_alignment.mode = "zone")
+     */
+    public bool $textZoneMode = false;
+
+    /**
+     * X-coordinate of the text zone (pixels)
+     */
+    public float $textZoneX = 0;
+
+    /**
+     * Y-coordinate of the text zone (pixels)
+     */
+    public float $textZoneY = 0;
+
+    /**
+     * Width of the text zone (pixels)
+     */
+    public float $textZoneW = 0;
+
+    /**
+     * Height of the text zone (pixels)
+     */
+    public float $textZoneH = 0;
+
+    /**
+     * Padding inside the text zone (pixels)
+     */
+    public float $textZonePadding = 0;
+
+    /**
+     * Horizontal alignment within the zone: 'left', 'center', 'right'
+     */
+    public string $textZoneAlign = 'center';
+
+    /**
+     * Vertical alignment within the zone: 'top', 'middle', 'bottom'
+     */
+    public string $textZoneValign = 'middle';
+
+    /**
+     * Rotation angle for zone text (currently only 0 supported)
+     */
+    public int $textZoneRotation = 0;
 
     /**
      *
@@ -358,8 +405,16 @@ class Image
     {
         try {
             if (str_contains($image, '/api/randomImg.php')) {
+                $query = [];
                 parse_str(parse_url($image)['query'] ?? '', $query);
-                $path = is_array($query['dir']) ? $query['dir']['0'] : $query['dir'];
+                $dirParam = $query['dir'] ?? null;
+                if ($dirParam === null) {
+                    throw new \Exception('Missing "dir" parameter for random image path.');
+                }
+                $path = is_array($dirParam) ? $dirParam[0] ?? '' : $dirParam;
+                if ($path === '') {
+                    throw new \Exception('Invalid "dir" parameter for random image path.');
+                }
                 $image = ImageUtility::getRandomImageFromPath($path);
             }
 
@@ -367,7 +422,32 @@ class Image
                 $image = PathUtility::resolveFilePath($image);
             }
 
-            $resource = imagecreatefromstring((string)file_get_contents($image));
+            $extension = strtolower(pathinfo($image, PATHINFO_EXTENSION));
+            $resource = false;
+            switch ($extension) {
+                case 'jpg':
+                case 'jpeg':
+                    $resource = @imagecreatefromjpeg($image);
+                    break;
+                case 'png':
+                    $resource = @imagecreatefrompng($image);
+                    break;
+                case 'gif':
+                    $resource = @imagecreatefromgif($image);
+                    break;
+                case 'webp':
+                    if (function_exists('imagecreatefromwebp')) {
+                        $resource = @imagecreatefromwebp($image);
+                    }
+                    break;
+                default:
+                    $contents = file_get_contents($image);
+                    if ($contents === false) {
+                        throw new \Exception('Can\'t read image file: ' . $image);
+                    }
+                    $resource = @imagecreatefromstring((string)$contents);
+                    break;
+            }
             if (!$resource) {
                 throw new \Exception('Can\'t create GD resource.');
             }
@@ -390,6 +470,11 @@ class Image
                 throw new \Exception('Error saving image.');
             }
 
+            // Cache image dimensions for gallery/PhotoSwipe performance
+            $width = imagesx($sourceResource);
+            $height = imagesy($sourceResource);
+            ImageMetadataCacheService::getInstance()->set($destination, $width, $height);
+
             return true;
         } catch (\Exception $e) {
             // If there is an exception, return false
@@ -404,6 +489,12 @@ class Image
      */
     public function rotateResizeImage(GdImage $image, int $degrees, string $bgColor = '#ffffff', bool $useTransparentBackground = false): GdImage|false
     {
+        if ($degrees % 360 === 0) {
+            // No rotation needed for 0, 360, -360, etc.
+            return $image;
+        }
+
+        $new = $image;
         try {
             // simple rotate if possible and ignore changed dimensions (doesn't need to care about background color)
             $simple_rotate = [-180, -90, 0, 180, 90, 360];
@@ -412,6 +503,8 @@ class Image
                 if (!$new) {
                     throw new \Exception('Cannot rotate image.');
                 }
+                // without, 0 degree rotation would loose alpha blending, results in black image
+                imagealphablending($new, true);
             } else {
                 $old_width = imagesx($image);
                 $old_height = imagesy($image);
@@ -430,7 +523,7 @@ class Image
                     $background = imagecolorallocatealpha($new, 0, 0, 0, 127);
                 } else {
                     $colorComponents = self::getColorComponents($bgColor);
-                    list($bg_r, $bg_g, $bg_b, $bg_a) = $colorComponents;
+                    [$bg_r, $bg_g, $bg_b, $bg_a] = $colorComponents;
                     // color background as defined
                     $background = imagecolorallocatealpha($new, $bg_r, $bg_g, $bg_b, $bg_a);
                 }
@@ -458,7 +551,7 @@ class Image
                 $y = intval(($old_height - $new_height) / 2);
 
                 // copy rotated image to new image with old dimensions
-                if (imagecopy($new, $image, $x, $y, 0, 0, $new_width, $new_height)) {
+                if (!imagecopy($new, $image, $x, $y, 0, 0, $new_width, $new_height)) {
                     throw new \Exception('Cannot copy rotated image to new image.');
                 }
             }
@@ -485,7 +578,7 @@ class Image
     /**
      * Resize an image based on the maximum dimensions.
      */
-    public function resizeImage(GdImage $image, int $maxWidth, int $maxHeight = null): GdImage|false
+    public function resizeImage(GdImage $image, int $maxWidth, ?int $maxHeight = null): GdImage|false
     {
         $maxHeight = $maxHeight ?? $maxWidth;
         try {
@@ -580,7 +673,7 @@ class Image
     /**
      * Resize and crop an image by center.
      */
-    public function resizeCropImage(GdImage $source_file, int $maxWidth, int $maxHeight = null): GdImage
+    public function resizeCropImage(GdImage $source_file, int $maxWidth, ?int $maxHeight = null): GdImage
     {
         $maxHeight = $maxHeight ?? $maxWidth;
         try {
@@ -728,11 +821,7 @@ class Image
             $fontPath = PathUtility::getAbsolutePath($this->fontPath);
             $tempFontPath = $_SERVER['DOCUMENT_ROOT'] . '/tempfont.ttf';
             $isTempFont = false;
-            $fontSize = $this->fontSize;
-            $fontRotation = $this->fontRotation;
-            $fontLocationX = $this->fontLocationX;
-            $fontLocationY = $this->fontLocationY;
-            $textLineSpacing = $this->textLineSpacing;
+
             // Convert hex color string to RGB values
             $colorComponents = self::getColorComponents($this->fontColor);
             list($r, $g, $b) = $colorComponents;
@@ -750,32 +839,16 @@ class Image
                 $fontPath = $tempFontPath;
                 $isTempFont = true;
             } else {
-                $fontPath = PathUtility::resolveFilePath($this->fontPath);
+                $fontPath = FontUtility::getFontPath($this->fontPath);
             }
 
-            // Add first line of text
-            if (!empty($this->textLine1)) {
-                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $fontLocationX, $fontLocationY, $color, $fontPath, $this->textLine1)) {
-                    throw new \Exception('Could not add first line of text to resource.');
-                }
-            }
-
-            // Add second line of text
-            if (!empty($this->textLine2)) {
-                $line2Y = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationY + $textLineSpacing : $fontLocationY;
-                $line2X = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationX : $fontLocationX + $textLineSpacing;
-                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line2X, $line2Y, $color, $fontPath, $this->textLine2)) {
-                    throw new \Exception('Could not add second line of text to resource.');
-                }
-            }
-
-            // Add third line of text
-            if (!empty($this->textLine3)) {
-                $line3Y = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationY + $textLineSpacing * 2 : $fontLocationY;
-                $line3X = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationX : $fontLocationX + $textLineSpacing * 2;
-                if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line3X, $line3Y, $color, $fontPath, $this->textLine3)) {
-                    throw new \Exception('Could not add third line of text to resource.');
-                }
+            // Check if zone mode is enabled
+            if ($this->textZoneMode) {
+                // Zone-based text rendering
+                $this->applyTextInZone($sourceResource, $fontPath, $color);
+            } else {
+                // Legacy text rendering (original behavior)
+                $this->applyTextLegacy($sourceResource, $fontPath, $color);
             }
 
             if ($isTempFont && file_exists($tempFontPath)) {
@@ -796,6 +869,175 @@ class Image
 
             // Return unmodified resource
             return $sourceResource;
+        }
+    }
+
+    /**
+     * Legacy text rendering (original behavior when not in zone mode)
+     */
+    private function applyTextLegacy(GdImage $sourceResource, string $fontPath, int $color): void
+    {
+        $fontSize = $this->fontSize;
+        $fontRotation = $this->fontRotation;
+        $fontLocationX = $this->fontLocationX;
+        $fontLocationY = $this->fontLocationY;
+        $textLineSpacing = $this->textLineSpacing;
+
+        // Add first line of text
+        if (!empty($this->textLine1)) {
+            if (!imagettftext($sourceResource, $fontSize, $fontRotation, $fontLocationX, $fontLocationY, $color, $fontPath, $this->textLine1)) {
+                throw new \Exception('Could not add first line of text to resource.');
+            }
+        }
+
+        // Add second line of text
+        if (!empty($this->textLine2)) {
+            $line2Y = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationY + $textLineSpacing : $fontLocationY;
+            $line2X = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationX : $fontLocationX + $textLineSpacing;
+            if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line2X, $line2Y, $color, $fontPath, $this->textLine2)) {
+                throw new \Exception('Could not add second line of text to resource.');
+            }
+        }
+
+        // Add third line of text
+        if (!empty($this->textLine3)) {
+            $line3Y = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationY + $textLineSpacing * 2 : $fontLocationY;
+            $line3X = $fontRotation < 45 && $fontRotation > -45 ? $fontLocationX : $fontLocationX + $textLineSpacing * 2;
+            if (!imagettftext($sourceResource, $fontSize, $fontRotation, $line3X, $line3Y, $color, $fontPath, $this->textLine3)) {
+                throw new \Exception('Could not add third line of text to resource.');
+            }
+        }
+    }
+
+    /**
+     * Zone-based text rendering with auto-fit, proper alignment and baseline correction
+     */
+    private function applyTextInZone(GdImage $sourceResource, string $fontPath, int $color): void
+    {
+        // Collect non-empty text lines
+        $lines = [];
+        if (!empty(trim($this->textLine1))) {
+            $lines[] = trim($this->textLine1);
+        }
+        if (!empty(trim($this->textLine2))) {
+            $lines[] = trim($this->textLine2);
+        }
+        if (!empty(trim($this->textLine3))) {
+            $lines[] = trim($this->textLine3);
+        }
+
+        // Nothing to draw if no lines
+        if (count($lines) === 0) {
+            return;
+        }
+
+        // Calculate zone with padding
+        $padding = $this->textZonePadding;
+        $zoneX = $this->textZoneX + $padding;
+        $zoneY = $this->textZoneY + $padding;
+        $zoneW = $this->textZoneW - (2 * $padding);
+        $zoneH = $this->textZoneH - (2 * $padding);
+
+        // Ensure zone has positive dimensions
+        if ($zoneW <= 0 || $zoneH <= 0) {
+            return;
+        }
+
+        // Calculate line height factor from admin settings
+        $lineHeightFactor = $this->textLineSpacing > 0 && $this->fontSize > 0
+            ? $this->textLineSpacing / $this->fontSize
+            : 1.2;
+
+        // Auto-fit: find the largest font size that fits all text in the zone
+        $fontSize = $this->fontSize > 0 ? $this->fontSize : 50;
+        $minFontSize = 10; // Absolute minimum
+        $preferredMinFontSize = 18; // Preferred minimum for readability
+
+        $fitsInZone = false;
+        while ($fontSize >= $minFontSize && !$fitsInZone) {
+            $lineHeight = (int)($fontSize * $lineHeightFactor);
+            $maxLineWidth = 0;
+
+            // Measure all lines at current font size
+            foreach ($lines as $line) {
+                $bbox = @imagettfbbox($fontSize, 0, $fontPath, $line);
+                if ($bbox !== false) {
+                    $lineWidth = abs($bbox[2] - $bbox[0]);
+                    if ($lineWidth > $maxLineWidth) {
+                        $maxLineWidth = $lineWidth;
+                    }
+                }
+            }
+
+            // Calculate total block height
+            // Height = (n-1) * lineHeight + fontSize (last line doesn't need spacing below)
+            $blockHeight = (count($lines) - 1) * $lineHeight + $fontSize;
+
+            // Check if it fits
+            if ($maxLineWidth <= $zoneW && $blockHeight <= $zoneH) {
+                $fitsInZone = true;
+            } else {
+                $fontSize--;
+            }
+        }
+
+        // If even minimum font size doesn't fit, use minimum anyway
+        if (!$fitsInZone) {
+            $fontSize = $minFontSize;
+        }
+
+        // Recalculate with final font size
+        $lineHeight = (int)($fontSize * $lineHeightFactor);
+        $blockHeight = (count($lines) - 1) * $lineHeight + $fontSize;
+
+        // Get ascent for baseline correction
+        // The ascent is the distance from baseline to top of tallest character
+        $ascentBbox = @imagettfbbox($fontSize, 0, $fontPath, 'HgjpqyÄÖÜ');
+        $ascent = $ascentBbox !== false ? abs($ascentBbox[7]) : $fontSize;
+
+        // Calculate vertical start position based on valign
+        switch ($this->textZoneValign) {
+            case 'bottom':
+                $startTopY = $zoneY + $zoneH - $blockHeight;
+                break;
+            case 'middle':
+                $startTopY = $zoneY + ($zoneH - $blockHeight) / 2;
+                break;
+            case 'top':
+            default:
+                $startTopY = $zoneY;
+                break;
+        }
+
+        // Draw each line with individual horizontal alignment
+        foreach ($lines as $index => $line) {
+            // Measure this specific line
+            $bbox = @imagettfbbox($fontSize, 0, $fontPath, $line);
+            $lineWidth = $bbox !== false ? abs($bbox[2] - $bbox[0]) : 0;
+
+            // Calculate X position based on align
+            switch ($this->textZoneAlign) {
+                case 'right':
+                    $drawX = (int)($zoneX + $zoneW - $lineWidth);
+                    break;
+                case 'center':
+                    $drawX = (int)($zoneX + ($zoneW - $lineWidth) / 2);
+                    break;
+                case 'left':
+                default:
+                    $drawX = (int)$zoneX;
+                    break;
+            }
+
+            // Calculate Y position (baseline position)
+            // First line: startTopY + ascent (to position top of text at startTopY)
+            // Subsequent lines: add lineHeight for each
+            $drawY = (int)($startTopY + $ascent + ($index * $lineHeight));
+
+            // Draw the text (rotation is 0 for zone mode)
+            if (!imagettftext($sourceResource, $fontSize, 0, $drawX, $drawY, $color, $fontPath, $line)) {
+                throw new \Exception('Could not add line ' . ($index + 1) . ' of text to resource.');
+            }
         }
     }
 
@@ -831,17 +1073,17 @@ class Image
             }
 
             if (abs($degrees) == 90) {
-                $imageResource = self::resizeCropImage($imageResource, $height, $width);
+                $imageResource = $this->resizeCropImage($imageResource, $height, $width);
             } else {
-                $imageResource = self::resizeCropImage($imageResource, $width, $height);
+                $imageResource = $this->resizeCropImage($imageResource, $width, $height);
             }
 
             if ($this->addPictureApplyFrame) {
-                $imageResource = self::applyFrame($imageResource);
+                $imageResource = $this->applyFrame($imageResource);
             }
 
             if ($degrees != 0) {
-                $imageResource = self::rotateResizeImage(
+                $imageResource = $this->rotateResizeImage(
                     image: $imageResource,
                     degrees: $degrees,
                     useTransparentBackground: true
@@ -1102,48 +1344,70 @@ class Image
     public function effectPolaroid(GdImage $resource): GdImage
     {
         try {
-            // We create a new image
-            $img = imagecreatetruecolor(imagesx($resource) + 25, imagesy($resource) + 80);
-            if (!$img) {
-                throw new \Exception('Cannot create new image.');
+            // Get resolution of the input image
+            $resourceWidth = imagesx($resource);
+            $resourceHeight = imagesy($resource);
+
+            // Determine the shorter side of the original image, used as a reference for border thickness
+            $resourceShortSide = min($resourceWidth, $resourceHeight);
+
+            // Define base border thickness parameters. These could eventually be configurable in the Admin Panel.
+            $borderThinPercentage = 2; // Percentage of the original short side for thin borders (left, right, top)
+            $factorBottomBorder = 6;   // Multiplier for the bottom border thickness relative to the thin borders
+
+            // Calculate actual pixel thickness
+            $borderThinPx = (int) round($borderThinPercentage * $resourceShortSide / 100); // for the thin borders
+            $borderBottomPx = $factorBottomBorder * $borderThinPx; // for the thick bottom border
+
+            // Calculate dimensions for the final Polaroid image.
+            $finalPolaroidWidth = $resourceWidth + (2 * $borderThinPx);
+            // The final Polaroid height is calculated to maintain the original image's aspect ratio (width/height).
+            $finalPolaroidHeight = (int) round($finalPolaroidWidth / ($resourceWidth / $resourceHeight));
+
+            // Calculate the target height for the image *content* within the Polaroid frame.
+            $targetImageContentHeight = $finalPolaroidHeight - $borderThinPx - $borderBottomPx;
+
+            // Error handling: Ensure there is enough vertical space for the image content after borders.
+            if ($targetImageContentHeight <= 0) {
+                throw new \Exception('Polaroid borders are too large, no space left for image content. Please adjust border settings.');
             }
-            $white = intval(imagecolorallocate($img, 255, 255, 255));
 
-            // We fill in the new white image
-            if (!imagefill($img, 0, 0, $white)) {
-                throw new \Exception('Cannot fill image.');
+            // Calculate the amount of pixels to be cropped from the original image's height.
+            // This 'cropAmount' is distributed evenly on the top and bottom of the original image.
+            $cropAmountTotal = $resourceHeight - $targetImageContentHeight;
+            // Calculate the offset from the top (and bottom) of the original image for the crop.
+            $cropYOffset = (int) round($cropAmountTotal / 2);
+
+            // Create a new GD image resource for the final Polaroid output.
+            // This canvas will have the calculated final dimensions and serve as the base for the Polaroid.
+            $polaroidCanvas = imagecreatetruecolor($finalPolaroidWidth, $finalPolaroidHeight);
+            if (!$polaroidCanvas) {
+                throw new \Exception('Failed to create new image canvas for Polaroid effect.');
+            }
+            $white = intval(imagecolorallocate($polaroidCanvas, 255, 255, 255));
+
+            // Fill the entire canvas with white. This forms the base for all white borders.
+            if (!imagefill($polaroidCanvas, 0, 0, $white)) {
+                throw new \Exception('Failed to fill Polaroid canvas with white color.');
             }
 
-            // We copy the image to which we want to apply the polariod effect in our new image.
-            if (!imagecopy($img, $resource, 11, 11, 0, 0, imagesx($resource), imagesy($resource))) {
-                unset($img);
-                throw new \Exception('Cannot copy image.');
-            }
-
-            // Border color
-            $color = intval(imagecolorallocate($img, 192, 192, 192));
-            // We put a gray border to our image.
-            if (!imagerectangle($img, 0, 0, imagesx($img) - 4, imagesy($img) - 4, $color)) {
-                unset($img);
-                throw new \Exception('Cannot add border.');
-            }
-
-            // Shade Colors
-            $gris1 = intval(imagecolorallocate($img, 208, 208, 208));
-            $gris2 = intval(imagecolorallocate($img, 224, 224, 224));
-            $gris3 = intval(imagecolorallocate($img, 240, 240, 240));
-
-            // We add a small shadow
-            if (
-                !imageline($img, 2, imagesy($img) - 3, imagesx($img) - 1, imagesy($img) - 3, $gris1) ||
-                !imageline($img, 4, imagesy($img) - 2, imagesx($img) - 1, imagesy($img) - 2, $gris2) ||
-                !imageline($img, 6, imagesy($img) - 1, imagesx($img) - 1, imagesy($img) - 1, $gris3) ||
-                !imageline($img, imagesx($img) - 3, 2, imagesx($img) - 3, imagesy($img) - 4, $gris1) ||
-                !imageline($img, imagesx($img) - 2, 4, imagesx($img) - 2, imagesy($img) - 4, $gris2) ||
-                !imageline($img, imagesx($img) - 1, 6, imagesx($img) - 1, imagesy($img) - 4, $gris3)
-            ) {
-                unset($img);
-                throw new \Exception('Cannot add shadow.');
+            // Copy the original image onto the Polaroid canvas.
+            // The image is copied without scaling. Vertical cropping is achieved by specifying
+            // the source's Y-offset ($cropYOffset) and the source's effective height ($targetImageContentHeight).
+            // The destination X/Y positions ($borderThinPx, $borderThinPx) define the top-left
+            // corner of where the (cropped) image content starts within the Polaroid canvas.
+            if (!imagecopy(
+                $polaroidCanvas,             // Destination image resource
+                $resource,                   // Source image resource
+                $borderThinPx,               // Destination X-coordinate (left border)
+                $borderThinPx,               // Destination Y-coordinate (top border)
+                0,                           // Source X-coordinate (start from left of original image)
+                $cropYOffset,                // Source Y-coordinate (start from Y-offset within original image for cropping)
+                $resourceWidth,              // Width of the source rectangle to copy (full original width)
+                $targetImageContentHeight    // Height of the source rectangle to copy (cropped height from original)
+            )) {
+                unset($polaroidCanvas);
+                throw new \Exception('Failed to copy image onto Polaroid canvas.');
             }
 
             // Convert hex color string to RGB values
@@ -1151,8 +1415,8 @@ class Image
             list($rbcc, $gbcc, $bbcc) = $colorComponents;
 
             // We rotate the image
-            $background = intval(imagecolorallocate($img, $rbcc, $gbcc, $bbcc));
-            $rotatedImg = imagerotate($img, $this->polaroidRotation, $background);
+            $rotationBackgroundColor = intval(imagecolorallocate($polaroidCanvas, $rbcc, $gbcc, $bbcc));
+            $rotatedImg = imagerotate($polaroidCanvas, $this->polaroidRotation, $rotationBackgroundColor);
 
             if (!$rotatedImg) {
                 throw new \Exception('Cannot rotate image.');
@@ -1161,8 +1425,8 @@ class Image
             $this->addErrorData($e->getMessage());
 
             // Try to clear cache
-            if (isset($img) && $img instanceof GdImage) {
-                unset($img);
+            if (isset($polaroidCanvas) && $polaroidCanvas instanceof GdImage) {
+                unset($polaroidCanvas);
             }
 
             // Re-throw exception on loglevel > 1
@@ -1175,7 +1439,7 @@ class Image
         }
         $this->imageModified = true;
         // We destroy the image we have been working with
-        unset($img);
+        unset($polaroidCanvas);
 
         // We return the rotated image
         return $rotatedImg;

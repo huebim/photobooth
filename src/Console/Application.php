@@ -15,8 +15,22 @@ class Application extends BaseApplication
     public function __construct(array $photoboothConfig)
     {
         $this->photoboothConfig = $photoboothConfig;
-        parent::__construct('Photobooth', ApplicationService::getInstance()->getVersion());
-        $this->add((new Command\ConfigListCommand())->setPhotoboothConfig($this->photoboothConfig));
-        $this->add((new Command\EnvironmentListCommand()));
+
+        parent::__construct(
+            'Photobooth',
+            ApplicationService::getInstance()->getVersion()
+        );
+    }
+
+    protected function getDefaultCommands(): array
+    {
+        return array_merge(
+            parent::getDefaultCommands(),
+            [
+                (new Command\ConfigListCommand())
+                    ->setPhotoboothConfig($this->photoboothConfig),
+                new Command\EnvironmentListCommand(),
+            ]
+        );
     }
 }

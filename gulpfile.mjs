@@ -21,6 +21,20 @@ gulp.task('sass', async function () {
   try {
     const scssDir = './assets/sass';
     const outputDir = './resources/css';
+
+    const privateScssDir = './private/sass';
+
+    // Ensure the private sass directory exists
+    fs.mkdirSync(privateScssDir, { recursive: true });
+    // Create an optional _custom.scss file if it doesn't exist
+    const optionalCustomCss = path.join(privateScssDir, '_custom.scss');
+    if (!fs.existsSync(optionalCustomCss)) {
+      fs.writeFileSync(
+        optionalCustomCss,
+        '// auto-generated stub for optional custom overrides\n'
+      );
+    }
+
     const files = fs.readdirSync(scssDir);
 
     const scssFiles = files.filter(file => path.extname(file) === '.scss' && file !== 'tailwind.admin.scss');
@@ -84,6 +98,7 @@ gulp.task('js-admin', function () {
       './assets/js/admin/imageSelect.js',
       './assets/js/admin/fontSelect.js',
       './assets/js/admin/videoSelect.js',
+      './assets/js/admin/themes.js',
       './assets/js/admin/toast.js',
     ])
     .pipe(concat('main.admin.js'))
@@ -129,3 +144,8 @@ gulp.task('default', gulp.series(
     gulp.parallel('sass', 'js', 'js-admin', 'tailwind-admin'),
     generateAssetRevisions
 ));
+
+gulp.task('watch', function () {
+  gulp.watch(['assets/js/**/*.js'], gulp.series('js', 'js-admin', generateAssetRevisions));
+  gulp.watch(['assets/sass/**/*.scss', 'private/sass/**/*.scss', 'config/tailwind.admin.config.mjs'], gulp.series('sass', 'tailwind-admin', generateAssetRevisions));
+});

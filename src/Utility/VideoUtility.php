@@ -2,6 +2,8 @@
 
 namespace Photobooth\Utility;
 
+use Exception;
+
 class VideoUtility
 {
     public const supportedFileExtensionsProcessing = [
@@ -29,35 +31,34 @@ class VideoUtility
     ];
 
     public static function getVideoPreview(
-        string $videoPath = '',
+        string $relativeVideoPath = '',
         array $attributes = [],
     ): string {
-        $absoluteVideoPath = PathUtility::getAbsolutePath($videoPath);
 
-        if (is_readable($absoluteVideoPath)) {
-            $attributes['src'] = $videoPath;
+        if (!empty($relativeVideoPath)) {
+            $absolutePath = PathUtility::getRootPath() . $relativeVideoPath;
+
+            //check on fs if video exists
+            if (!file_exists($absolutePath)) {
+                $attributes['alt'] = 'Video not found: ' . htmlspecialchars($relativeVideoPath);
+            } else {
+                $videoPathPublic   = PathUtility::getPublicPath($relativeVideoPath);
+                $attributes['src'] = $videoPathPublic;
+            }
+        } else {
+            $attributes['alt'] = 'No video specified';
         }
 
         return '<video autoplay muted loop playsinline ' . ComponentUtility::renderAttributes($attributes) . '></video>';
     }
 
+    /**
+     * @throws Exception
+     */
     public static function getVideosFromPath(string $path, bool $processing = true): array
     {
-        if (!PathUtility::isAbsolutePath($path)) {
-            $path = PathUtility::getAbsolutePath($path);
-        }
-        if (!PathUtility::isAbsolutePath($path)) {
-            throw new \Exception('Path ' . $path . ' does not exist.');
-        }
+        $allowedExtensions = $processing ? self::supportedFileExtensionsProcessing : self::supportedFileExtensionsSelect;
 
-        $files = [];
-        foreach (new \DirectoryIterator($path) as $file) {
-            if (!$file->isFile() || !in_array(strtolower($file->getExtension()), $processing ? self::supportedFileExtensionsProcessing : self::supportedFileExtensionsSelect)) {
-                continue;
-            }
-            $files[] = $path . '/' . $file->getFilename();
-        }
-
-        return $files;
+        return FileUtility::getFilesFromPath($path, $allowedExtensions);
     }
 }

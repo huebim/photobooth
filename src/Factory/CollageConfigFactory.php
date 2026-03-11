@@ -14,7 +14,7 @@ class CollageConfigFactory
         $collageConfig->collageLayout = $config['collage']['layout'] instanceof CollageLayoutEnum
             ? $config['collage']['layout']->value
             : (string) $config['collage']['layout'];
-        $collageConfig->collageResolution = (int) substr($config['collage']['resolution'], 0, -3);
+        $collageConfig->collageOrientation = $config['collage']['orientation'];
         $collageConfig->collageBackgroundColor = $config['collage']['background_color'];
         $collageConfig->collageFrame = $config['collage']['frame'];
         $collageConfig->collageTakeFrame = $config['collage']['take_frame'];
@@ -28,8 +28,8 @@ class CollageConfigFactory
         $collageConfig->collageLimit = (int) ($config['collage']['placeholder'] ? $config['collage']['limit'] + 1 : $config['collage']['limit']);
         $collageConfig->pictureFlip = $config['picture']['flip'];
         $collageConfig->pictureRotation = (int) $config['picture']['rotation'];
-        $collageConfig->picturePolaroidEffect = $config['picture']['polaroid_effect'] === true ? 'enabled' : 'disabled';
-        $collageConfig->picturePolaroidRotation = (int) $config['picture']['polaroid_rotation'];
+        $collageConfig->collagePolaroidEffect = $config['collage']['polaroid_effect'] === true ? 'enabled' : 'disabled';
+        $collageConfig->collagePolaroidRotation = (int) $config['collage']['polaroid_rotation'];
         $collageConfig->textOnCollageEnabled = $config['textoncollage']['enabled'] === true ? 'enabled' : 'disabled';
         $collageConfig->textOnCollageLine1 = $config['textoncollage']['line1'];
         $collageConfig->textOnCollageLine2 = $config['textoncollage']['line2'];
@@ -41,6 +41,7 @@ class CollageConfigFactory
         $collageConfig->textOnCollageFontColor = $config['textoncollage']['font_color'];
         $collageConfig->textOnCollageFontSize = (int) $config['textoncollage']['font_size'];
         $collageConfig->textOnCollageLinespace = (int) $config['textoncollage']['linespace'];
+        $collageConfig->collageAllowSelection = $config['collage']['allow_selection'] === true;
 
         return $collageConfig;
     }

@@ -6,6 +6,7 @@ require_once '../lib/boot.php';
 
 use Photobooth\Image;
 use Photobooth\Collage;
+use Photobooth\Rembg;
 use Photobooth\Enum\FolderEnum;
 use Photobooth\Enum\ImageFilterEnum;
 use Photobooth\Processor\ImageProcessor;
@@ -16,6 +17,8 @@ use Photobooth\Utility\ImageUtility;
 use Photobooth\Utility\PathUtility;
 
 header('Content-Type: application/json');
+
+checkCsrfOrFail($_POST);
 
 $logger = LoggerService::getInstance()->getLogger('main');
 $logger->debug(basename($_SERVER['PHP_SELF']));
@@ -30,11 +33,23 @@ try {
         throw new \Exception('No file provided');
     }
 
-    $vars['fileName'] = $_POST['file'];
+    $vars['fileName'] = basename((string)$_POST['file']);
+    if ($vars['fileName'] === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $vars['fileName'])) {
+        throw new \Exception('Invalid file name provided');
+    }
 
     if (!isset($_POST['style']) || !in_array($_POST['style'], ['photo', 'collage', 'custom', 'chroma'])) {
         throw new \Exception('Invalid or missing style parameter');
     }
+
+    if (isset($_POST['collageLayout'])) {
+        $config['collage']['layout'] = $_POST['collageLayout'];
+
+    }
+
+    $limitData = Collage::calculateLimit($config['collage'], $logger);
+    $config['collage']['limit'] = $limitData['limit'];
+    $config['collage']['placeholder'] = $limitData['placeholderEnabled'];
 
     $vars['style'] = $_POST['style'];
 
@@ -82,16 +97,16 @@ try {
     }
 
     if ($vars['isCollage']) {
-        list($vars['collageSrcImagePaths'], $vars['srcImages']) = Collage::getCollageFiles($config['collage'], $vars['tmpFile'], $vars['fileName'], $vars['srcImages']);
+        [$vars['collageSrcImagePaths'], $vars['srcImages']] = Collage::getCollageFiles($config['collage'], $vars['tmpFile'], $vars['fileName'], $vars['srcImages']);
 
         if ($processor !== null && $processor instanceof ImageProcessor && method_exists($processor, 'preCollageProcessing')) {
-            list($imageHandler, $vars, $config) = $processor->preCollageProcessing($imageHandler, $vars, $config);
+            [$imageHandler, $vars, $config] = $processor->preCollageProcessing($imageHandler, $vars, $config);
         }
         if (!Collage::createCollage($config, $vars['collageSrcImagePaths'], $vars['tmpFile'], $vars['imageFilter'])) {
             throw new \Exception('Error creating collage image.');
         }
         if ($processor !== null && $processor instanceof ImageProcessor && method_exists($processor, 'postCollageProcessing')) {
-            list($imageHandler, $vars, $config) = $processor->postCollageProcessing($imageHandler, $vars, $config);
+            [$imageHandler, $vars, $config] = $processor->postCollageProcessing($imageHandler, $vars, $config);
         }
     }
 
@@ -112,19 +127,36 @@ try {
         }
 
         if ($processor !== null && $processor instanceof ImageProcessor && method_exists($processor, 'preImageProcessing')) {
-            list($imageHandler, $vars, $config, $imageResource) = $processor->preImageProcessing($imageHandler, $vars, $config, $imageResource);
+            [$imageHandler, $vars, $config, $imageResource] = $processor->preImageProcessing($imageHandler, $vars, $config, $imageResource);
         }
         if (!$vars['isChroma']) {
             if ($vars['isCollage'] && $vars['fileName'] != $vars['singleImageFile']) {
                 $vars['editSingleCollage'] = true;
-                $imageHandler->framePath = $config['collage']['take_frame'] === 'always' ? $config['collage']['frame'] : $config['picture']['frame'];
+                $imageHandler->framePath = PathUtility::getPublicPath($config['collage']['take_frame'] === 'always' ? $config['collage']['frame'] : $config['picture']['frame']);
             } else {
                 $vars['editSingleCollage'] = false;
-                $imageHandler->framePath = $config['picture']['frame'];
+                $imageHandler->framePath = PathUtility::getPublicPath($config['picture']['frame']);
             }
 
             if (!$vars['isCollage'] || $vars['editSingleCollage']) {
-                // apply filter
+                $filterProcessSize = intval($config['filters']['process_size'] ?? 0);
+
+                // only downscale if filter not plain, rembg is enabled
+                $originalResource = null;
+                if ($vars['imageFilter'] !== ImageFilterEnum::PLAIN || $config['rembg']['enabled']) {
+                    $originalWidth    = imagesx($imageResource);
+                    $originalHeight   = imagesy($imageResource);
+                    $originalResource = $imageResource;
+
+                    if ($filterProcessSize > 0 && ($originalWidth > $filterProcessSize || $originalHeight > $filterProcessSize)) {
+                        $downscaledResource = $imageHandler->resizeImage($imageResource, $filterProcessSize);
+                        if ($downscaledResource instanceof \GdImage) {
+                            $imageResource = $downscaledResource;
+                        }
+                    }
+                }
+
+                // apply filter (optionally downscale first for performance)
                 if ($vars['imageFilter'] !== null && $vars['imageFilter'] !== ImageFilterEnum::PLAIN) {
                     try {
                         ImageUtility::applyFilter($vars['imageFilter'], $imageResource);
@@ -132,6 +164,7 @@ try {
                     } catch (\Exception $e) {
                         throw new \Exception('Error applying image filter.');
                     }
+
                 }
 
                 if ($config['picture']['flip'] !== 'off') {
@@ -149,15 +182,18 @@ try {
                     }
                 }
 
-                if ($config['picture']['rotation'] !== '0') {
+                if ((int)$config['picture']['rotation'] !== 0) {
                     $imageResource = $imageHandler->rotateResizeImage(
                         image: $imageResource,
-                        degrees: $config['picture']['rotation']
+                        degrees: (int)$config['picture']['rotation'],
                     );
                     if (!$imageResource instanceof \GdImage) {
                         throw new \Exception('Error resizing resource.');
                     }
                 }
+
+                // Apply rembg
+                [$imageHandler, $imageResource] = Rembg::process($imageHandler, $vars, $config['rembg'], $imageResource);
 
                 if ($config['picture']['polaroid_effect']) {
                     $imageHandler->polaroidRotation = $config['picture']['polaroid_rotation'];
@@ -184,11 +220,23 @@ try {
                         throw new \Exception('Error applying frame to image resource.');
                     }
                 }
+
+                // Maybe we want this later or configurable, will take some time to process upscale again
+                // Upscale back to original size
+                //                if (!empty($originalResource) && $originalResource !== $imageResource) {
+                //                        $restored = $imageHandler->resizeImage($imageResource, $originalWidth, $originalHeight);
+                //                        if ($restored instanceof \GdImage) {
+                //                            if ($imageResource instanceof \GdImage) {
+                //                                unset($imageResource);
+                //                            }
+                //                            $imageResource = $restored;
+                //                        }
+                //                }
             }
         }
 
         if ($processor !== null && $processor instanceof ImageProcessor && method_exists($processor, 'postImageProcessing')) {
-            list($imageHandler, $vars, $config, $imageResource) = $processor->postImageProcessing($imageHandler, $vars, $config, $imageResource);
+            [$imageHandler, $vars, $config, $imageResource] = $processor->postImageProcessing($imageHandler, $vars, $config, $imageResource);
         }
 
         if ($config['keying']['enabled'] || $vars['isChroma']) {
@@ -208,16 +256,24 @@ try {
         }
 
         if ($config['textonpicture']['enabled'] && (!$vars['isCollage'] && !$vars['isChroma'] || $vars['editSingleCollage'])) {
-            $imageHandler->fontSize = $config['textonpicture']['font_size'];
+            // calculate and apply text on picture if image got downscaled before
+            $scale = 1.0;
+            if (isset($originalWidth) && isset($originalHeight)) {
+                $currentWidth = imagesx($imageResource);
+                $scale        = $currentWidth / $originalWidth;
+            }
+
+            // Cast after scaling to avoid implicit float-to-int deprecation warnings in PHP 8.4
+            $imageHandler->fontSize        = (int) round($config['textonpicture']['font_size'] * $scale);
+            $imageHandler->textLineSpacing = (int) round($config['textonpicture']['linespace'] * $scale);
+            $imageHandler->fontLocationX   = (int) round($config['textonpicture']['locationx'] * $scale);
+            $imageHandler->fontLocationY   = (int) round($config['textonpicture']['locationy'] * $scale);
             $imageHandler->fontRotation = $config['textonpicture']['rotation'];
-            $imageHandler->fontLocationX = $config['textonpicture']['locationx'];
-            $imageHandler->fontLocationY = $config['textonpicture']['locationy'];
             $imageHandler->fontColor = $config['textonpicture']['font_color'];
             $imageHandler->fontPath = $config['textonpicture']['font'];
             $imageHandler->textLine1 = $config['textonpicture']['line1'];
             $imageHandler->textLine2 = $config['textonpicture']['line2'];
             $imageHandler->textLine3 = $config['textonpicture']['line3'];
-            $imageHandler->textLineSpacing = $config['textonpicture']['linespace'];
             $imageResource = $imageHandler->applyText($imageResource);
             if (!$imageResource instanceof \GdImage) {
                 throw new \Exception('Error applying text to image resource.');

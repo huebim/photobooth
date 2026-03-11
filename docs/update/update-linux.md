@@ -12,10 +12,11 @@ To update from an old version to latest Photobooth it's recommend to [make a cle
 
 **Note:** You must have the git-version of Photobooth installed.
 
-To update an existing Photobooth-Installation via git, run below commands in your terminal. A valid OS username must be passed to the installer:
+To update an existing Photobooth-Installation via git, run below commands in your terminal to start the Photobooth Setup Wizard.
+If an Photobooth installation is found, an option to update can be found as "2 Update Photobooth":
 ```
 wget -O install-photobooth.sh https://raw.githubusercontent.com/PhotoboothProject/photobooth/dev/install-photobooth.sh
-sudo bash install-photobooth.sh --update --username='<YourUsername>'
+sudo bash install-photobooth.sh
 ```
 
 **Special note:**
@@ -44,7 +45,7 @@ Cannot open device /dev/video0, exiting
 
 If it doesn't work, you might need to compile the v4l2loopback Module yourself by running the following commands:
 
-```sh
+```
 curl -LO https://github.com/umlaeute/v4l2loopback/archive/refs/tags/v0.12.7.tar.gz
 tar xzf v0.12.7.tar.gz && cd v4l2loopback-0.12.7
 make && sudo make install

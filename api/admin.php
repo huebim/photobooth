@@ -3,33 +3,36 @@
 /** @var array $config */
 /** @var array $defaultConfig */
 
-require_once '../lib/boot.php';
+require_once __DIR__ . '/../admin/admin_boot.php';
 
-use Photobooth\Enum\CollageLayoutEnum;
+use Photobooth\Collage;
 use Photobooth\Enum\FolderEnum;
 use Photobooth\Environment;
 use Photobooth\Service\ConfigurationService;
 use Photobooth\Service\DatabaseManagerService;
+use Photobooth\Service\ImageMetadataCacheService;
 use Photobooth\Service\LoggerService;
 use Photobooth\Service\MailService;
 use Photobooth\Service\PrintManagerService;
 use Photobooth\Service\ProcessService;
 use Photobooth\Utility\ArrayUtility;
+use Photobooth\Utility\AdminKeypad;
 use Photobooth\Utility\PathUtility;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Finder\Finder;
 
 header('Content-Type: application/json');
-
 $loggerService = LoggerService::getInstance();
 $logger = $loggerService->getLogger('main');
 $logger->debug(basename($_SERVER['PHP_SELF']));
+
+checkCsrfOrFail($_POST);
 
 $configurationService = ConfigurationService::getInstance();
 $defaultConfig = $configurationService->getDefaultConfiguration();
 
 $data = ArrayUtility::replaceBooleanValues($_POST);
-$action = isset($data['type']) ? $data['type'] : null;
+$action = $data['type'] ?? null;
 
 // Reset
 if ($action === 'reset') {
@@ -78,6 +81,10 @@ if ($action === 'reset') {
             unlink($database->databaseFile);
             $logger->debug($database->databaseFile . ' deleted.');
         }
+
+        // Clear gallery image metadata cache as media has been removed
+        ImageMetadataCacheService::getInstance()->clear();
+        $logger->debug('Image metadata cache cleared.');
     }
 
     // Remove print database
@@ -118,47 +125,104 @@ if ($action === 'reset') {
     $logger->debug('Saving Photobooth configuration...');
     $newConfig = ArrayUtility::mergeRecursive($defaultConfig, $data);
 
-    if (isset($newConfig['login']['enabled']) && $newConfig['login']['enabled'] == true) {
-        if ((isset($newConfig['login']['password']) && !empty($newConfig['login']['password'])) || $newConfig['login']['keypad']) {
-            if ($newConfig['login']['keypad'] && strlen($newConfig['login']['pin']) != 4) {
-                $logger->debug('Keypad pin reset.');
-                $logger->debug('Length: ' . strlen($newConfig['login']['pin']) . ' Expected length: 4', $newConfig['login']);
-                $newConfig['login']['enabled'] = false;
-                $newConfig['login']['keypad'] = false;
-                $newConfig['login']['pin'] = '';
-            }
-            if (isset($newConfig['login']['password']) && !empty($newConfig['login']['password'])) {
-                // allow login via password, but we might have disabled because the PIN length did not match our requirements
-                $newConfig['login']['enabled'] = true;
-                if ($newConfig['login']['password'] != $config['login']['password']) {
-                    $hashing = password_hash($newConfig['login']['password'], PASSWORD_DEFAULT);
-                    $newConfig['login']['password'] = $hashing;
-                }
-            }
-        } else {
-            $newConfig['login']['enabled'] = false;
-            $newConfig['login']['keypad'] = false;
-            $newConfig['login']['pin'] = '';
-            $logger->debug('Password not set. Login disabled.', $newConfig['login']);
+    $rootPath = PathUtility::getRootPath();
+
+    $normalizePath = static function (?string $path) use ($rootPath): ?string {
+        if ($path === null || $path === '') {
+            return $path;
         }
-    } else {
-        $newConfig['login']['password'] = null;
-        $newConfig['login']['keypad'] = false;
-        $newConfig['login']['pin'] = '';
+
+        // Strip installation root from absolute filesystem paths written by the file chooser
+        if ($rootPath !== '' && str_starts_with($path, $rootPath)) {
+            $path = substr($path, strlen($rootPath));
+        }
+
+        // Trim leading slashes so we store project-relative paths like
+        // "private/..." or "resources/..." instead of "/private/...".
+        return ltrim($path, '/');
+    };
+
+    // Logo and UI images
+    $newConfig['logo']['path']             = $normalizePath($newConfig['logo']['path'] ?? null);
+    $newConfig['ui']['shutter_cheese_img'] = $normalizePath($newConfig['ui']['shutter_cheese_img'] ?? null);
+
+    // Frames and backgrounds which may be selected via image picker
+    $newConfig['picture']['frame']       = $normalizePath($newConfig['picture']['frame'] ?? null);
+    $newConfig['collage']['frame']       = $normalizePath($newConfig['collage']['frame'] ?? null);
+    $newConfig['background']['defaults'] = $normalizePath($newConfig['background']['defaults'] ?? null);
+    $newConfig['background']['admin']    = $normalizePath($newConfig['background']['admin'] ?? null);
+    $newConfig['background']['chroma']   = $normalizePath($newConfig['background']['chroma'] ?? null);
+    $newConfig['collage']['placeholderpath'] = $normalizePath($newConfig['collage']['placeholderpath'] ?? null);
+    $newConfig['screensaver']['image_source']   = $normalizePath($newConfig['screensaver']['image_source'] ?? null);
+    $newConfig['screensaver']['video_source']   = $normalizePath($newConfig['screensaver']['video_source'] ?? null);
+    if (isset($newConfig['screensaver']['switch_seconds'])) {
+        $newConfig['screensaver']['switch_seconds'] = (int)$newConfig['screensaver']['switch_seconds'];
+    }
+    if (isset($newConfig['screensaver']['timeout_minutes'])) {
+        $newConfig['screensaver']['timeout_minutes'] = (int)$newConfig['screensaver']['timeout_minutes'];
+    }
+    if (isset($newConfig['screensaver']['text_backdrop_opacity'])) {
+        $newConfig['screensaver']['text_backdrop_opacity'] = (float)$newConfig['screensaver']['text_backdrop_opacity'];
     }
 
-    if (isset($newConfig['login']['rental_keypad']) && $newConfig['login']['rental_keypad'] == true) {
-        if (strlen($newConfig['login']['rental_pin']) != 4 || $newConfig['login']['rental_pin'] === $newConfig['login']['pin']) {
-            $logger->debug('Rental keypad pin reset.', $newConfig['login']);
-            $logger->debug('Length: ' . strlen($newConfig['login']['rental_pin']) . ' Expected length: 4', $newConfig['login']);
-            if ($newConfig['login']['rental_pin'] === $newConfig['login']['pin']) {
-                $logger->debug('Rental keypad pin must be different from login pin.', $newConfig['login']);
-            }
+    // Fonts selected via font picker
+    $newConfig['textonpicture']['font'] = $normalizePath($newConfig['textonpicture']['font'] ?? null);
+    $newConfig['textoncollage']['font'] = $normalizePath($newConfig['textoncollage']['font'] ?? null);
+    $newConfig['textonprint']['font']   = $normalizePath($newConfig['textonprint']['font'] ?? null);
+    $newConfig['print']['frame']        = $normalizePath($newConfig['print']['frame'] ?? null);
+
+    $keepExistingSecret = static function (string $key, ?string $current, array $config): ?string {
+        if (($current ?? '') === '' && isset($config['login'][$key])) {
+            return $config['login'][$key];
+        }
+        return $current;
+    };
+
+    $newConfig['login']['password']   = $keepExistingSecret('password', $newConfig['login']['password'] ?? null, $config);
+    $newConfig['login']['pin']        = $keepExistingSecret('pin', $newConfig['login']['pin'] ?? null, $config);
+    $newConfig['login']['rental_pin'] = $keepExistingSecret('rental_pin', $newConfig['login']['rental_pin'] ?? null, $config);
+
+    // Hash password early when a new value is provided
+    if (!empty($newConfig['login']['password']) && $newConfig['login']['password'] !== ($config['login']['password'] ?? null)) {
+        $newConfig['login']['password'] = password_hash($newConfig['login']['password'], PASSWORD_DEFAULT);
+    }
+
+    $loginEnabled      = !empty($newConfig['login']['enabled']);
+    $loginKeypad       = !empty($newConfig['login']['keypad']);
+    $rentalKeypad      = !empty($newConfig['login']['rental_keypad']);
+    $loginPinIsHashed  = AdminKeypad::isHashedPin($newConfig['login']['pin'] ?? null);
+    $rentalPinIsHashed = AdminKeypad::isHashedPin($newConfig['login']['rental_pin'] ?? null);
+
+    if ($loginEnabled) {
+        $hasPassword = !empty($newConfig['login']['password']);
+        $hasKeypad   = $loginKeypad;
+
+        if ($hasKeypad && !$loginPinIsHashed && strlen($newConfig['login']['pin']) !== 4) {
+            $logger->debug('Keypad pin invalid; disabling keypad.', $newConfig['login']);
+            $newConfig['login']['keypad'] = false;
+            $hasKeypad = false;
+        }
+
+        if (!$hasPassword && !$hasKeypad) {
+            $newConfig['login']['enabled'] = false;
+            $logger->debug('Password and keypad missing. Login disabled.', $newConfig['login']);
+        }
+    } else {
+        $newConfig['login']['keypad'] = false;
+    }
+
+    // Normalize screensaver boolean values (checkbox submits strings)
+    if (isset($newConfig['screensaver']['enabled'])) {
+        $newConfig['screensaver']['enabled'] = filter_var($newConfig['screensaver']['enabled'], FILTER_VALIDATE_BOOLEAN);
+    }
+
+    if ($rentalKeypad) {
+        $rentalPin = $newConfig['login']['rental_pin'] ?? '';
+        if ((!$rentalPinIsHashed && strlen($rentalPin) !== 4) || $rentalPin === ($newConfig['login']['pin'] ?? null)) {
+            $logger->debug('Rental keypad pin invalid; disabling rental keypad.', $newConfig['login']);
             $newConfig['login']['rental_keypad'] = false;
             $newConfig['login']['rental_pin'] = '';
         }
-    } else {
-        $newConfig['login']['rental_pin'] = '';
     }
 
     if (isset($newConfig['filters']['enabled']) && $newConfig['filters']['enabled'] == true) {
@@ -198,10 +262,6 @@ if ($action === 'reset') {
         $newConfig['remotebuzzer']['port'] = 14711;
     }
 
-    if (isset($newConfig['remotebuzzer']['useleds']) && $newConfig['remotebuzzer']['useleds']) {
-        $newConfig['remotebuzzer']['useleds'] = isset($newConfig['remotebuzzer']['usegpio']) && $newConfig['remotebuzzer']['usegpio'];
-    }
-
     if (isset($newConfig['database']['file']) && empty($newConfig['database']['file'])) {
         $newConfig['database']['file'] = 'db';
     }
@@ -218,42 +278,14 @@ if ($action === 'reset') {
         }
     }
 
-    $newConfig['collage']['limit'] = CollageLayoutEnum::getLimitByValue($newConfig['collage']['layout']);
-    if ($newConfig['collage']['limit'] === 0) {
-        $logger->debug('Collage limit = 0. Falling back to defaults.');
-        $newConfig['collage']['layout'] = CollageLayoutEnum::TWO_PLUS_TWO_2->value;
-        $newConfig['collage']['limit'] = CollageLayoutEnum::TWO_PLUS_TWO_2->limit();
-    }
-
-    $collageConfigFilePath = PathUtility::getAbsolutePath('private/collage.json');
-    if ($newConfig['collage']['layout'] == 'collage.json' && file_exists($collageConfigFilePath)) {
-        $collageConfig = json_decode((string)file_get_contents($collageConfigFilePath), true);
-        if (is_array($collageConfig)) {
-            if (array_key_exists('placeholder', $collageConfig)) {
-                $newConfig['collage']['placeholder'] = $collageConfig['placeholder'];
-            }
-            if (array_key_exists('placeholderposition', $collageConfig)) {
-                $newConfig['collage']['placeholderposition'] = $collageConfig['placeholderposition'];
-            }
-            if (array_key_exists('placeholderpath', $collageConfig)) {
-                $newConfig['collage']['placeholderpath'] = $collageConfig['placeholderpath'];
-            }
-        }
-    }
-
-    // If there is a collage placeholder whithin the correct range (0 < placeholderposition <= collage limit), we need to decrease the collage limit by 1
-    if ($newConfig['collage']['placeholder']) {
-        $collagePlaceholderPosition = (int) $newConfig['collage']['placeholderposition'];
-        if ($collagePlaceholderPosition > 0 && $collagePlaceholderPosition <= $newConfig['collage']['limit']) {
-            $newConfig['collage']['limit'] = $newConfig['collage']['limit'] - 1;
-        } else {
-            $newConfig['collage']['placeholder'] = false;
-            $logger->debug('Placeholder position not in range. Placeholder disabled.');
-        }
-
-        if ($newConfig['collage']['placeholderpath'] === '') {
-            $newConfig['collage']['placeholder'] = false;
-            $logger->debug('Collage Placeholder is empty. Collage Placeholder disabled.');
+    // Collage json config
+    $newConfig['collage']['limit'] = $newConfig['collage']['limit'] ?? $defaultConfig['collage']['limit'];
+    if ($newConfig['collage']['enabled']) {
+        $limitData = Collage::calculateLimit($newConfig['collage'], $logger);
+        $newConfig['collage']['limit'] = $limitData['limit'];
+        $newConfig['collage']['placeholder'] = $limitData['placeholderEnabled'];
+        if ($newConfig['collage']['limit'] < 1) {
+            $newConfig['collage']['enabled'] = false;
         }
     }
 
@@ -287,23 +319,54 @@ if ($action === 'reset') {
         $logger->debug('Print font is empty. Disabled text on print.');
     }
 
+    // Hash password if a plain value slipped through (e.g., kept existing value while login disabled)
+    if (!empty($newConfig['login']['password'])) {
+        $passwordInfo = password_get_info($newConfig['login']['password']);
+        if (($passwordInfo['algo'] ?? 0) === 0) {
+            $newConfig['login']['password'] = password_hash($newConfig['login']['password'], PASSWORD_DEFAULT);
+        }
+    }
+
+    // Hash PINs just before save to ensure storage never keeps plain values
+    foreach (['pin', 'rental_pin'] as $pinField) {
+        if (!empty($newConfig['login'][$pinField]) && !AdminKeypad::isHashedPin($newConfig['login'][$pinField])) {
+            $newConfig['login'][$pinField] = password_hash($newConfig['login'][$pinField], PASSWORD_DEFAULT);
+        }
+    }
+
     if ($newConfig['logo']['enabled']) {
         $logoPath = $newConfig['logo']['path'];
-        if (empty($logoPath) || !file_exists($_SERVER['DOCUMENT_ROOT'] . $logoPath)) {
+
+        if (empty($logoPath)) {
             $newConfig['logo']['enabled'] = false;
-            $logger->debug('Logo file path does not exist or is empty. Logo disabled.', $newConfig['logo']);
+            $logger->debug('Logo path empty. Logo disabled.', $newConfig['logo']);
         } else {
-            $newConfig['logo']['path'] = PathUtility::fixFilePath($logoPath);
-            $ext = pathinfo($logoPath, PATHINFO_EXTENSION);
-            if ($ext === 'svg') {
-                $logger->debug('Logo file is SVG, path saved.', $newConfig['logo']);
-            } else {
-                $imageInfo = @getimagesize($_SERVER['DOCUMENT_ROOT'] . $logoPath);
-                if ($imageInfo === false) {
-                    $newConfig['logo']['enabled'] = false;
-                    $logger->debug('Logo file is not a supported image type [' . $ext . ']. Logo disabled.', $newConfig['logo']);
+            try {
+                $absoluteLogoPath = PathUtility::resolveFilePath($logoPath);
+            } catch (\Exception $e) {
+                $newConfig['logo']['enabled'] = false;
+                $logger->debug('Logo file path does not exist or is not readable. Logo disabled.', [
+                    'logo'  => $newConfig['logo'],
+                    'error' => $e->getMessage(),
+                ]);
+                $absoluteLogoPath = null;
+            }
+
+            if ($absoluteLogoPath !== null) {
+                $newConfig['logo']['path'] = PathUtility::fixFilePath($logoPath);
+                $ext                       = pathinfo($absoluteLogoPath, PATHINFO_EXTENSION);
+
+                if ($ext === 'svg') {
+                    $logger->debug('Logo file is SVG, path saved.', $newConfig['logo']);
                 } else {
-                    $logger->debug('Logo file is a supported image type [' . $ext . '], path saved.', $newConfig['logo']);
+                    $imageInfo = @getimagesize($absoluteLogoPath);
+                    if ($imageInfo === false) {
+                        $newConfig['logo']['enabled'] = false;
+                        $logger->debug(
+                            'Logo file is not a supported image type [' . $ext . ']. Logo disabled.',
+                            $newConfig['logo'],
+                        );
+                    }
                 }
             }
         }
@@ -317,7 +380,7 @@ if ($action === 'reset') {
             'message' => 'New config saved.',
         ]);
     } catch (\Exception $exception) {
-        $logger->error('ERROR: Config can not be saved!');
+        $logger->error('ERROR: Config can not be saved!', ['error' => $exception->getMessage()]);
         echo json_encode([
             'status' => 'error',
             'message' => $exception->getMessage(),

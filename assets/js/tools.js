@@ -1,5 +1,5 @@
 /* eslint n/no-unsupported-features/node-builtins: "off" */
-/* globals remoteBuzzerClient */
+/* globals remoteBuzzerClient csrf */
 const photoboothTools = (function () {
     // vars
     const notificationTimeout = config.ui.notification_timeout * 1000,
@@ -9,12 +9,28 @@ const photoboothTools = (function () {
     api.sounds = null;
     api.isPrinting = false;
 
+    const addCsrfToUrl = function (url) {
+        if (typeof csrf === 'undefined') {
+            return url;
+        }
+        const u = new URL(url, window.location.origin);
+        u.searchParams.set(csrf.key, csrf.token);
+        return u.toString();
+    };
+
+    // Attach CSRF to all jQuery AJAX calls
+    if (typeof $ !== 'undefined' && typeof csrf !== 'undefined') {
+        $.ajaxSetup({
+            data: { [csrf.key]: csrf.token }
+        });
+    }
+
     api.initialize = async function () {
-        const resultTranslations = await fetch(environment.publicFolders.api + '/translations.php', {
+        const resultTranslations = await fetch(addCsrfToUrl(environment.publicFolders.api + '/translations.php'), {
             cache: 'no-store'
         });
         this.translations = await resultTranslations.json();
-        const resultSounds = await fetch(environment.publicFolders.api + '/sounds.php', {
+        const resultSounds = await fetch(addCsrfToUrl(environment.publicFolders.api + '/sounds.php'), {
             cache: 'no-store'
         });
         this.sounds = await resultSounds.json();
@@ -145,6 +161,10 @@ const photoboothTools = (function () {
             iconWrap.appendChild(icon);
             button.appendChild(iconWrap);
 
+            if (label === '') {
+                return button;
+            }
+
             const labelWrap = document.createElement('span');
             labelWrap.classList.add(prefix + 'button--label');
             labelWrap.innerHTML = api.getTranslation(label);
@@ -234,13 +254,79 @@ const photoboothTools = (function () {
         });
     };
 
+    api.askCopies = async () => {
+        return new Promise((resolve) => {
+            const element = document.createElement('dialog');
+            element.classList.add('dialog');
+            element.classList.add('rotarygroup');
+
+            const message = document.createElement('div');
+            message.classList.add('dialog-message');
+            message.textContent = api.getTranslation('print:choose_copies');
+            element.appendChild(message);
+
+            const inputSection = document.createElement('div');
+            inputSection.classList.add('buttonbar--print-copies');
+            const minusButton = api.button.create('', 'fa fa-minus', 'default', '');
+            const plusButton = api.button.create('', 'fa fa-plus', 'default', '');
+            const inputText = document.createElement('input');
+            inputText.classList.add('form-input-copies');
+            inputText.value = '1';
+            minusButton.addEventListener('click', () => {
+                const oldValue = parseInt(inputText.value, 10);
+                inputText.value = String(Math.max(1, oldValue - 1));
+            });
+            plusButton.addEventListener('click', () => {
+                const oldValue = parseInt(inputText.value, 10);
+                inputText.value = String(Math.min(config.print.max_multi, oldValue + 1));
+            });
+            inputSection.append(minusButton);
+            inputSection.append(inputText);
+            inputSection.append(plusButton);
+            element.append(inputSection);
+
+            const buttonbar = document.createElement('div');
+            buttonbar.classList.add('dialog-buttonbar');
+            element.appendChild(buttonbar);
+
+            // confirm
+            const confirmButton = api.button.create('print', 'fa fa-check', 'default', 'dialog-');
+            confirmButton.addEventListener('click', () => {
+                element.close(true);
+                element.remove();
+                resolve(inputText.value);
+            });
+            buttonbar.appendChild(confirmButton);
+
+            // cancel
+            const cancelButton = api.button.create('cancel', 'fa fa-times', 'default', 'dialog-');
+            cancelButton.addEventListener('click', () => {
+                element.close(false);
+                element.remove();
+                resolve(false);
+            });
+            buttonbar.appendChild(cancelButton);
+
+            element.addEventListener('cancel', function () {
+                element.close(false);
+                element.remove();
+                resolve(false);
+            });
+
+            document.body.append(element);
+            element.showModal();
+        });
+    };
+
     api.reloadPage = function () {
-        window.location.reload();
+        const url = new URL(window.location.href);
+        url.searchParams.set('refresh', '1');
+        window.location.href = url.toString();
     };
 
     api.getRequest = function (url) {
         api.console.log('Sending GET request to: ' + url);
-        fetch(new Request(url), {
+        fetch(new Request(addCsrfToUrl(url)), {
             method: 'GET',
             mode: 'cors',
             credentials: 'same-origin'
@@ -282,7 +368,7 @@ const photoboothTools = (function () {
         }, to);
     };
 
-    api.printImage = function (imageSrc, cb) {
+    api.printImage = function (imageSrc, copies, cb) {
         if (api.isVideoFile(imageSrc)) {
             api.console.log('ERROR: An error occurred: attempt to print non printable file.');
             api.overlay.showError(api.getTranslation('no_printing'));
@@ -299,7 +385,9 @@ const photoboothTools = (function () {
                 method: 'GET',
                 url: environment.publicFolders.api + '/print.php',
                 data: {
-                    filename: imageSrc
+                    filename: imageSrc,
+                    copies: copies,
+                    [csrf.key]: csrf.token
                 },
                 success: (data) => {
                     api.console.log('Picture processed: ', data);
@@ -310,9 +398,17 @@ const photoboothTools = (function () {
                         );
                         api.resetPrintErrorMessage(cb, config.print.time);
                         $('.print-unlock-button').removeClass('hidden');
-                    } else if (data.error) {
-                        api.console.log('ERROR: An error occurred: ', data.error);
-                        api.overlay.showError(data.error);
+                    } else if (data.status == 'queued') {
+                        api.overlay.showWarning(api.getTranslation('print_queued'));
+                        api.resetPrintErrorMessage(cb, 2000);
+                    } else if (data.status == 'error') {
+                        if (data.error) {
+                            api.console.log('ERROR: An error occurred: ', data.error);
+                            api.overlay.showError(data.error);
+                        } else {
+                            api.console.log('ERROR: An error occurred on print.');
+                            api.overlay.showError(api.getTranslation('error'));
+                        }
                         api.resetPrintErrorMessage(cb, config.print.time);
                     } else {
                         setTimeout(function () {
@@ -323,7 +419,7 @@ const photoboothTools = (function () {
                     }
                 },
                 error: (jqXHR, textStatus) => {
-                    api.console.log('ERROR: An error occurred: ', textStatus);
+                    api.console.log('ERROR: Print failed: ', textStatus);
                     api.overlay.showError(api.getTranslation('error'));
                     api.resetPrintErrorMessage(cb, notificationTimeout);
                 }

@@ -36,9 +36,11 @@ foreach ($configsetup as $section => $fields) {
         }
 
         $i18ntag = $section . ':' . $key;
-
         echo '<!-- ' . strtoupper($setting['type']) . ' ' . strtoupper($setting['name']) . ' -->';
-        echo '<div class="flex flex-col rounded-xl p-3 shadow-xl bg-white ' . $hidden . '" id="' . $i18ntag . '">';
+        echo '<div class="adminSettingCard relative flex flex-col rounded-xl p-3 shadow-xl bg-white ' . $hidden . '" id="' . $i18ntag . '">';
+
+        $isThemeField = ($setting['data-theme-field'] ?? '') === 'true' || ($setting['data-theme-field'] ?? false) === true;
+        AdminInput::setThemeFieldFlag($isThemeField);
 
         // Populate setting elements by type
 
@@ -62,6 +64,12 @@ foreach ($configsetup as $section => $fields) {
             case 'checkbox':
                 echo AdminInput::renderCheckbox($setting, $i18ntag);
                 break;
+            case 'toggle-button-group':
+                echo AdminInput::renderToggleButtonGroup($setting, $i18ntag);
+                break;
+            case 'toggle-button-group-modal':
+                echo AdminInput::renderToggleButtonGroupModal($setting, $i18ntag);
+                break;
             case 'multi-select':
             case 'select':
                 echo AdminInput::renderSelect($setting, $i18ntag);
@@ -77,6 +85,12 @@ foreach ($configsetup as $section => $fields) {
                 break;
             case 'video':
                 echo AdminInput::renderVideoSelect($setting, $i18ntag);
+                break;
+            case 'list':
+                echo AdminInput::renderList($setting, $i18ntag);
+                break;
+            case 'theme':
+                echo AdminInput::renderTheme($setting, 'theme_title');
                 break;
         }
 

@@ -12,6 +12,7 @@ use Photobooth\Utility\PathUtility;
 // Login / Authentication check
 if (!(
     !$config['login']['enabled'] ||
+    in_array($_SERVER['REMOTE_ADDR'] ?? '', $config['protect']['ip_whitelist'] ?? [], true) ||
     (!$config['protect']['localhost_index'] && isset($_SERVER['SERVER_ADDR']) &&  $_SERVER['REMOTE_ADDR'] === $_SERVER['SERVER_ADDR']) ||
     (isset($_SESSION['auth']) && $_SESSION['auth'] === true) || !$config['protect']['index']
 )) {
@@ -68,7 +69,7 @@ include PathUtility::getAbsolutePath('template/components/main.head.php');
 
 <script src="<?=$assetService->getUrl('resources/js/preview.js')?>"></script>
 <script src="<?=$assetService->getUrl('resources/js/virtualKeyboard.js')?>"></script>
-<script src="<?=$assetService->getUrl('resources/js/core.js')?>"></script>
+    <script src="<?=$assetService->getUrl('resources/js/core.js')?>"></script>
 
 <?php ProcessService::getInstance()->boot(); ?>
 </body>

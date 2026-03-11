@@ -3,6 +3,7 @@
 namespace Photobooth;
 
 use Photobooth\Enum\FolderEnum;
+use Photobooth\Utility\PathUtility;
 
 class Environment implements \JsonSerializable
 {
@@ -27,7 +28,20 @@ class Environment implements \JsonSerializable
 
     public static function getIp(): string
     {
-        return self::isLinux() ? shell_exec('hostname -I | cut -d " " -f 1') : $_SERVER['HTTP_HOST'];
+        static $cachedIp = null;
+
+        if ($cachedIp !== null) {
+            return $cachedIp;
+        }
+
+        if (self::isLinux()) {
+            $ip = shell_exec('hostname -I | cut -d \" \" -f 1') ?: '';
+            $cachedIp = trim((string) $ip);
+        } else {
+            $cachedIp = isset($_SERVER['HTTP_HOST']) ? (string) $_SERVER['HTTP_HOST'] : '';
+        }
+
+        return $cachedIp;
     }
 
     public static function getPublicFolders(): array
@@ -50,11 +64,17 @@ class Environment implements \JsonSerializable
         return $data;
     }
 
+    /**
+     * Config for frontend
+     *
+     * @return array
+     */
     public function jsonSerialize(): array
     {
         return [
             'operatingSystem' => self::getOperatingSystem(),
             'ip' => self::getIp(),
+            'baseUrl' => PathUtility::getBaseUrl(),
             'publicFolders' => self::getPublicFolders(),
             'absoluteFolders' => self::getAbsoluteFolders(),
         ];

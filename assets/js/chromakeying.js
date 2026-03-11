@@ -1,4 +1,4 @@
-/* globals photoBooth MarvinColorModelConverter AlphaBoundary MarvinImage Seriously initRemoteBuzzerFromDOM photoboothTools */
+/* globals photoBooth MarvinColorModelConverter AlphaBoundary MarvinImage Seriously initRemoteBuzzerFromDOM photoboothTools csrf */
 /* exported setChromaImage processChromaImage */
 let mainImage;
 let mainImageWidth;
@@ -203,7 +203,8 @@ function saveImage(filename, cb) {
         url: environment.publicFolders.api + '/chromakeying/save.php',
         data: {
             imgData: dataURL,
-            file: filename
+            file: filename,
+            [csrf.key]: csrf.token
         },
         success: (resp) => {
             if (typeof onCaptureChromaView === 'undefined') {
@@ -255,7 +256,7 @@ function saveImage(filename, cb) {
                     if (photoboothTools.isPrinting) {
                         photoboothTools.console.log('Printing already in progress!');
                     } else {
-                        photoboothTools.printImage(resp.filename, () => {
+                        photoboothTools.printImage(resp.filename, 1, () => {
                             $('[data-command="print-btn"]').trigger('blur');
                         });
                     }
@@ -345,7 +346,7 @@ $(function () {
                     if (!resp.success) {
                         return;
                     }
-                    photoboothTools.printImage(resp.filename, () => {
+                    photoboothTools.printImage(resp.filename, 1, () => {
                         $('[data-command="print-btn"]').trigger('blur');
                     });
                 });

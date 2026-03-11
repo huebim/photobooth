@@ -1,8 +1,10 @@
 /* eslint n/no-unsupported-features/node-builtins: "off" */
+/* globals csrf */
 
 class DebugPanel {
     constructor() {
         this.autorefresh = false;
+        this.autorefreshIntervalId = null;
         this.currentNavigationId = null;
 
         this.buttons = document.querySelectorAll('.debugNavItem');
@@ -18,11 +20,17 @@ class DebugPanel {
         this.autoRefreshInput.addEventListener('change', (event) => {
             this.autorefresh = event.target.checked;
             if (event.target.checked) {
-                setInterval(() => {
+                if (this.autorefreshIntervalId !== null) {
+                    clearInterval(this.autorefreshIntervalId);
+                }
+                this.autorefreshIntervalId = setInterval(() => {
                     this.refreshContent();
                 }, 1000);
             } else {
-                clearInterval();
+                if (this.autorefreshIntervalId !== null) {
+                    clearInterval(this.autorefreshIntervalId);
+                    this.autorefreshIntervalId = null;
+                }
             }
         });
 
@@ -51,7 +59,15 @@ class DebugPanel {
     }
 
     async fetchContent() {
-        return fetch(environment.publicFolders.api + '/serverInfo.php?content=' + this.currentNavigationId)
+        return fetch(
+            environment.publicFolders.api +
+                '/serverInfo.php?content=' +
+                this.currentNavigationId +
+                '&' +
+                csrf.key +
+                '=' +
+                csrf.token
+        )
             .then((response) => {
                 if (!response.ok) {
                     throw new Error('Network response was not ok');

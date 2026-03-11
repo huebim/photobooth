@@ -1,22 +1,12 @@
 <?php
 
-require_once '../../lib/boot.php';
+require_once __DIR__ . '/../admin_boot.php';
 
 use Photobooth\Environment;
 use Photobooth\Service\ApplicationService;
 use Photobooth\Service\AssetService;
 use Photobooth\Service\LanguageService;
 use Photobooth\Utility\PathUtility;
-
-// Login / Authentication check
-if (!(
-    !$config['login']['enabled'] ||
-    (!$config['protect']['localhost_admin'] && isset($_SERVER['SERVER_ADDR']) &&  $_SERVER['REMOTE_ADDR'] === $_SERVER['SERVER_ADDR']) ||
-    (isset($_SESSION['auth']) && $_SESSION['auth'] === true) || !$config['protect']['admin']
-)) {
-    header('location: ' . PathUtility::getPublicPath('login'));
-    exit();
-}
 
 $languageService = LanguageService::getInstance();
 $assetService = AssetService::getInstance();
@@ -61,6 +51,7 @@ echo getNavItemDebug('myconfig');
 echo getNavItemDebug('remotebuzzerlog');
 echo getNavItemDebug('synctodrivelog');
 echo getNavItemDebug('remotestoragelog');
+echo getNavItemDebug('rembglog');
 echo getNavItemDebug('devlog');
 if (Environment::isLinux()) {
     echo getNavItemDebug('serverprocesses');

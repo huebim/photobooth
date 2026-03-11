@@ -103,7 +103,7 @@ Enjoy your Photobooth installation!
 ### Download needed files
 
 -   Download Apache2 and Visual C++ Redistributable for Visual Studio: [https://www.apachelounge.com/download](https://www.apachelounge.com/download)
--   Download PHP 8.3 (Thread Safe): [https://windows.php.net/download](https://windows.php.net/download)
+-   Download PHP 8.4 (Thread Safe): [https://windows.php.net/download](https://windows.php.net/download)
 -   Download Digicamcontrol: [http://digicamcontrol.com/download](http://digicamcontrol.com/download)
 -   Download Notepad++: [https://notepad-plus-plus.org/downloads](https://notepad-plus-plus.org/downloads)
 -   Download latest Photobooth release (_photobooth-4.x.x.zip_ or _photobooth-4.x.x.tar.gz_
@@ -190,7 +190,7 @@ If you need to stop the webserver (e.g. if you like to change the `php.ini`):
 
 ### Test your Webserver & PHP
 
-Open [http://localhost/info.php](http://localhost/info.php) in your Browser,
+Open [http://localhost/info.php](http://localhost/info.php) (or [http://localhost/photobooth/info.php](http://localhost/photobooth/info.php)) in your Browser,
 you should see the PHP Information page.
 
 ### Install Digicamcontrol
@@ -202,11 +202,11 @@ Install Digicamcontrol to `C:\Apache24\htdocs\digicamcontrol\`
 Remove all files inside `C:\Apache24\htdocs\`.
 Next you need to extract the Photobooth Release-ZIP to `C:\Apache24\htdocs\`.
 
-Open [http://localhost/admin](http://localhost/admin) in your Browser and adjust
+Open [http://localhost/admin](http://localhost/admin) (or [http://localhost/photobooth/admin](http://localhost/photobooth/admin)) in your Browser and adjust
 your "_take picture command_" (inside the "_Commands_" section):
 
 `C:\Apache24\htdocs\digicamcontrol\CameraControlCmd.exe /capture /filename %s`
 
 ## Enjoy
 
-You should now be able to [access photobooth](http://localhost/) on your Windows machine!
+You should now be able to [access photobooth](http://localhost/) (or [http://localhost/photobooth/](http://localhost/photobooth/)) on your Windows machine!

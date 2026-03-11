@@ -37,7 +37,6 @@
   "collage:collage_layout": "Velg collage layot:",
   "collage:collage_placeholder": "Bruk tilpasset plassholdertekst",
   "collage:collage_placeholderpath": "Plassholderbilde sti",
-  "collage:collage_resolution": "Velg collage oppløsning:",
   "collage:collage_take_frame": "Ta collage med ramme",
   "collage:textoncollage_enabled": "Tekst på collage",
   "collage:textoncollage_font": "Skrifttype",
@@ -50,6 +49,14 @@
   "frontpage:ui_skip_welcome": "Hopp over velkomstskjerm",
   "gallery": "Galleri",
   "gallery:gallery_allow_delete": "Tillat sletting av bilder fra galleri",
+  "manual:remotebuzzer:remotebuzzer_input_device": "Linux-inndataenhet for maskinvaretriggere (f.eks. /dev/input/by-id/...). Bruker tastekoder per handling (foto/kollasje/egen/skriv ut/video) for å mappe hendelser.",
+  "remotebuzzer:remotebuzzer_input_device": "Inndataenhet",
   "takeCollage": "Collage",
-  "takePhoto": "Bilde"
+  "takePhoto": "Bilde",
+  "theme_choose": "Velg tema",
+  "theme_delete": "Slett tema",
+  "theme_load": "Last inn tema",
+  "theme_name_placeholder": "Temanavn",
+  "theme_save": "Lagre tema",
+  "theme_title": "Temaer"
 }

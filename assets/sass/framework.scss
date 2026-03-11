@@ -7,6 +7,7 @@
 @use 'components/button';
 @use 'components/sidenav';
 @use 'components/stage';
+@use 'components/screensaver';
 @use 'components/preview';
 @use 'components/logo';
 @use 'components/adminshortcut';
@@ -23,6 +24,7 @@
 @use 'components/virtualKeyboard';
 @use 'components/github-corner';
 @use 'components/background';
+@use 'components/viewer';
 
 // Experiments
 @use 'experiments/video-capture-animation';
@@ -34,3 +36,6 @@
 // Themes
 @use 'themes/classic';
 @use 'themes/modern';
+
+// Custom CSS
+@use '../../private/sass/custom';

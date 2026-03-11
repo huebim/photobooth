@@ -1,5 +1,5 @@
 <?php
-require_once '../../lib/boot.php';
+require_once __DIR__ . '/../admin_boot.php';
 
 use Photobooth\Service\ConfigurationService;
 use Photobooth\Service\ApplicationService;
@@ -9,16 +9,6 @@ use Photobooth\Utility\FontUtility;
 use Photobooth\Utility\ImageUtility;
 use Photobooth\Utility\PathUtility;
 use Photobooth\Service\AssetService;
-
-// Login / Authentication check
-if (!(
-    !$config['login']['enabled'] ||
-    (!$config['protect']['localhost_admin'] && isset($_SERVER['SERVER_ADDR']) &&  $_SERVER['REMOTE_ADDR'] === $_SERVER['SERVER_ADDR']) ||
-    (isset($_SESSION['auth']) && $_SESSION['auth'] === true) || !$config['protect']['admin']
-)) {
-    header('location: ' . PathUtility::getPublicPath('login'));
-    exit();
-}
 
 $configurationService = ConfigurationService::getInstance();
 
@@ -260,11 +250,11 @@ $font_styles .= '</style>';
                         <?php } ?>
                         <div class="grid gap-2">
                         <div>
-                            <span class="w-full flex flex-col items-center justify-center text-2md font-bold text-brand-1 mb-2">
+                            <span class="w-full flex flex-col text-xl font-bold text-brand-1 mb-2">
                                 <?= $languageService->translate('general') ?>
                             </span>
                         </div>
-                        <div class="grid gap-2 grid-cols-[repeat(auto-fit,_minmax(150px,_1fr))]">
+                        <div class="grid gap-2 mb-4 grid-cols-[repeat(auto-fit,_minmax(150px,_1fr))]">
                             <div class="col-span-2 flex flex-col">
                                 <?=
                                     AdminInput::renderColor(
@@ -279,9 +269,8 @@ $font_styles .= '</style>';
 ?>
                             </div>
                             <div class="col-span-2 flex flex-col">
-                                <?=
-    AdminInput::renderImageSelect(
-        [
+                                <?= AdminInput::renderImageSelect(
+                                    [
             'name' => 'generator-background',
             'value' => '',
             'paths' => [
@@ -290,8 +279,8 @@ $font_styles .= '</style>';
             ],
             'attributes' => ['data-trigger' => 'general']
         ],
-        'collage:collage_background'
-    )
+                                    'collage:collage_background'
+                                )
 ?>
                             </div>
                             <div class="col-span-2 flex flex-col">
@@ -349,7 +338,7 @@ $font_styles .= '</style>';
                 'always' => 'Always',
                 'once' => 'Once',
             ],
-            'value' => 'always',
+            'value' => 'once',
             'attributes' => ['data-trigger' => 'general']
         ],
         'collage:collage_take_frame'
@@ -382,11 +371,11 @@ $font_styles .= '</style>';
                             </div>
                         </div>
                         <div>
-                            <span class="w-full flex flex-col items-center justify-center text-2md font-bold text-brand-1 mb-2">
+                            <span class="w-full flex flex-col text-xl font-bold text-brand-1 mb-2">
                                 <?= $languageService->translate('collage:generator:placeholder_settings') ?>
                             </span>
                         </div>
-                        <div class="grid gap-2 grid-cols-[repeat(auto-fit,_minmax(150px,_1fr))]">
+                        <div class="grid gap-2 mb-4 grid-cols-[repeat(auto-fit,_minmax(150px,_1fr))]">
                             <div class="col-span-2 flex flex-col">
                                 <?=
     AdminInput::renderCheckbox(
@@ -407,7 +396,11 @@ $font_styles .= '</style>';
             'name' => 'placeholder_image_position',
             'value' => '1',
             'placeholder' => 'placehoder image position',
-            'attributes' => ['data-trigger' => 'general']
+            'attributes' => [
+                'min' => '1',
+                'max' => '8',
+                'data-trigger' => 'general'
+            ]
         ],
         'collage:collage_placeholderposition'
     )
@@ -431,11 +424,11 @@ $font_styles .= '</style>';
                             </div>
                         </div>
                         <div>
-                            <span class="w-full flex flex-col items-center justify-center text-2md font-bold text-brand-1 mb-2">
+                            <span class="w-full flex flex-col text-xl font-bold text-brand-1 mb-2">
                                 <?= $languageService->translate('text_settings') ?>
                             </span>
                         </div>
-                        <div class="grid gap-2 grid-cols-[repeat(auto-fit,_minmax(150px,_1fr))]">
+                        <div class="grid gap-2 mb-4 grid-cols-[repeat(auto-fit,_minmax(150px,_1fr))]">
                             <div class="col-span-2 flex flex-col">
                                 <?=
     AdminInput::renderCheckbox(

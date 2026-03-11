@@ -1,5 +1,30 @@
 /* eslint n/no-unsupported-features/node-builtins: "off" */
-/* globals photoBooth photoboothTools */
+
+/* globals photoBooth photoboothTools csrf */
+
+function getPreviewUrlWithCacheBusting() {
+    const url = getBasePreviewUrl();
+    const timestamp = new Date().getTime();
+
+    if (url.includes('?')) {
+        return `${url}&t=${timestamp}`;
+    }
+
+    return `${url}?t=${timestamp}`;
+}
+
+function getBasePreviewUrl() {
+    if (!config.preview || !config.preview.url) {
+        return '';
+    }
+
+    const raw = config.preview.url;
+    //remove url("") if present
+    const match = raw.match(/^url\((['"]?)(.+?)\1\)$/);
+
+    return match ? match[2] : raw;
+}
+
 const photoboothPreview = (function () {
     // vars
     const CameraDisplayMode = {
@@ -12,14 +37,6 @@ const photoboothPreview = (function () {
             NONE: 'none',
             DEVICE: 'device_cam',
             URL: 'url'
-        },
-        webcamConstraints = {
-            audio: false,
-            video: {
-                width: config.preview.videoWidth,
-                height: config.preview.videoHeight,
-                facingMode: config.preview.camera_mode
-            }
         },
         api = {};
 
@@ -67,6 +84,30 @@ const photoboothPreview = (function () {
             return;
         }
 
+        const videoWidthDefault = config.preview.videoWidth;
+        const videoHeightDefault = config.preview.videoHeight;
+        let videoWidth = videoWidthDefault;
+        let videoHeight = videoHeightDefault;
+
+        // Support diffrent preview video sizes for collage mode
+        if (photoBooth.photoStyle === 'collage') {
+            if (config.preview.videoWidth_collage > 0) {
+                videoWidth = config.preview.videoWidth_collage;
+            }
+            if (config.preview.videoHeight_collage > 0) {
+                videoHeight = config.preview.videoHeight_collage;
+            }
+        }
+
+        const webcamConstraints = {
+            audio: false,
+            video: {
+                width: videoWidth,
+                height: videoHeight,
+                facingMode: config.preview.camera_mode
+            }
+        };
+
         getMedia
             .call(navigator.mediaDevices, webcamConstraints)
             .then(function (stream) {
@@ -106,7 +147,8 @@ const photoboothPreview = (function () {
     api.runCmd = function (mode) {
         const dataVideo = {
             play: mode,
-            pid: pid
+            pid: pid,
+            [csrf.key]: csrf.token
         };
 
         jQuery
@@ -163,6 +205,7 @@ const photoboothPreview = (function () {
                 } else if (config.preview.mode === PreviewMode.URL.valueOf()) {
                     photoboothTools.console.logDev('Preview: Preview at countdown from URL.');
                     setTimeout(function () {
+                        url.css('background-image', 'url("' + getPreviewUrlWithCacheBusting() + '")');
                         url.show();
                         url.addClass('streaming');
                     }, config.preview.url_delay);
@@ -175,6 +218,7 @@ const photoboothPreview = (function () {
                 } else if (config.preview.mode === PreviewMode.URL.valueOf()) {
                     photoboothTools.console.logDev('Preview: Preview from URL.');
                     setTimeout(function () {
+                        url.css('background-image', 'url("' + getPreviewUrlWithCacheBusting() + '")');
                         url.show();
                         url.addClass('streaming');
                     }, config.preview.url_delay);
@@ -196,13 +240,15 @@ const photoboothPreview = (function () {
     };
 
     api.stopVideo = function () {
-        loader.css('--stage-background', config.colors.background_countdown);
+        loader.css('--stage-background', 'var(--background-countdown-color)');
         if (api.stream) {
-            api.stream.getTracks()[0].stop();
+            const tracks = api.stream.getTracks();
+            tracks.forEach((track) => track.stop());
             api.stream = null;
         }
         url.removeClass('streaming');
         url.hide();
+        url.css('background-image', 'none');
         video.hide();
         pictureFrame.hide();
         collageFrame.hide();
