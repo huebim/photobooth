@@ -8,6 +8,8 @@ use Photobooth\Utility\PathUtility;
 $languageService = LanguageService::getInstance();
 $metadataCache = ImageMetadataCacheService::getInstance();
 
+// Gallery images list
+
 if (empty($imagelist)) {
     echo '<h1>' . $languageService->translate('gallery_no_image') . '</h1>';
 } else {
@@ -92,6 +94,7 @@ if (empty($imagelist)) {
                     echo 'style="padding-left: 25%;padding-right: 25%;"';
                 }
                 echo ' />';
+                
                 if ($config['gallery']['figcaption']) {
                     echo '<figcaption>' . $date . '</figcaption>';
                 }

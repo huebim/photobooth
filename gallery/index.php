@@ -8,6 +8,13 @@ use Photobooth\Service\ProcessService;
 use Photobooth\Utility\PathUtility;
 
 $assetService = AssetService::getInstance();
+$remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+// Only allow access to the standalone gallery from localhost
+if (!in_array($remoteAddr, ['127.0.0.1', '::1'])) {
+    http_response_code(403);
+    echo 'Gallery is only available from the host machine.';
+    exit();
+}
 $pageTitle = 'Gallery - ' . ApplicationService::getInstance()->getTitle();
 $photoswipe = true;
 $randomImage = false;

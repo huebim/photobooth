@@ -1195,5 +1195,19 @@
   "video:video_qr": "Show video QR code",
   "viewer_photo_title": "Your photo",
   "viewer_video_fallback": "Your browser can’t play this video.",
-  "wait_message": "Please wait..."
+
+  "wait_message": "Please wait...",
+
+  "manual:rembg:enabled": "Enable background removal using the rembg service (http://localhost:7000).",
+  "manual:rembg:model": "Model to use for background removal (e.g. u2net).",
+  "manual:rembg:alpha_matting": "Use alpha matting for improved edges (slower).",
+  "manual:rembg:alpha_matting_foreground_threshold": "Alpha matting foreground threshold (0-255).",
+  "manual:rembg:alpha_matting_background_threshold": "Alpha matting background threshold (0-255).",
+  "manual:rembg:alpha_matting_erode_size": "Alpha matting erode size (px).",
+  "manual:rembg:background": "Optional background image path to composite transparent results onto.",
+  "manual:rembg:backgroundMode": "How the background image is fitted: none, scale-fit, scale-fill, crop-center, stretch.",
+  "manual:rembg:post_processing": "Enable post-processing on the rembg service (if supported)."
 }
+
+
+

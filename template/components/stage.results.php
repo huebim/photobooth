@@ -29,7 +29,9 @@ if ($config['ui']['result_buttons']) {
     if ($config['qr']['enabled']) {
         echo ComponentUtility::renderButton('qr', $config['icons']['qr'], 'qrbtn');
     }
-    if ($config['gallery']['enabled']) {
+    // Only show the gallery button to local requests (host machine)
+    $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+    if ($config['gallery']['enabled'] && in_array($remoteAddr, ['127.0.0.1', '::1'])) {
         echo ComponentUtility::renderButton('gallery', $config['icons']['gallery'], 'gallerybtn');
     }
     if ($config['mail']['enabled']) {

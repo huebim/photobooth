@@ -17,3 +17,6 @@ if ($photoswipe) {
     echo '<script src="' . $assetService->getUrl('node_modules/photoswipe/dist/umd/photoswipe-lightbox.umd.min.js') . '"></script>';
     echo '<script src="' . $assetService->getUrl('resources/js/photoswipe.js') . '"></script>';
 }
+
+    // Local cleanup script (only active when viewing from localhost)
+    echo '<script src="' . $assetService->getUrl('resources/js/cleanup.js') . '"></script>';

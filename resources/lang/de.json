@@ -1193,5 +1193,15 @@
   "video:video_qr": "QR für Video",
   "viewer_photo_title": "Dein Foto",
   "viewer_video_fallback": "Dein Browser kann dieses Video nicht abspielen.",
-  "wait_message": "Bitte warten..."
+  "wait_message": "Bitte warten...",
+
+  "manual:rembg:enabled": "Hintergrundentfernung mit dem rembg-Dienst aktivieren (http://localhost:7000).",
+  "manual:rembg:model": "Zu verwendendes Modell für Hintergrundentfernung (z. B. u2net).",
+  "manual:rembg:alpha_matting": "Alpha-Matting für bessere Kanten verwenden (langsamer).",
+  "manual:rembg:alpha_matting_foreground_threshold": "Alpha-Matting Vordergrund-Schwelle (0-255).",
+  "manual:rembg:alpha_matting_background_threshold": "Alpha-Matting Hintergrund-Schwelle (0-255).",
+  "manual:rembg:alpha_matting_erode_size": "Alpha-Matting Erode-Größe (px).",
+  "manual:rembg:background": "Optionaler Pfad zu einem Hintergrundbild, auf das transparente Ergebnisse gelegt werden.",
+  "manual:rembg:backgroundMode": "Wie das Hintergrundbild angepasst wird: none, scale-fit, scale-fill, crop-center, stretch.",
+  "manual:rembg:post_processing": "Post-Processing auf dem rembg-Dienst aktivieren (falls unterstützt)."
 }

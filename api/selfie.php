@@ -9,6 +9,8 @@ use Photobooth\Image;
 use Photobooth\Enum\FolderEnum;
 use Photobooth\Service\DatabaseManagerService;
 use Photobooth\Service\LoggerService;
+use Photobooth\Utility\PathUtility;
+use Photobooth\Rembg;
 
 header('Content-Type: application/json');
 
@@ -38,6 +40,8 @@ if (isset($_FILES['images'])) {
             throw new \Exception('Failed to upload selfie.');
         }
 
+        $previews = [];
+
         foreach ($uploadedFiles as $imageName) {
             $tmp = FolderEnum::TEMP->absolute() . DIRECTORY_SEPARATOR . $imageName;
             $imageNewName = Image::createNewFilename($config['picture']['naming']);
@@ -53,6 +57,9 @@ if (isset($_FILES['images'])) {
             if (!rename($tmp, $filename_tmp)) {
                 throw new \Exception('Failed to rename image!');
             }
+
+            // Apply rembg service (HTTP) during image processing (preferred).
+            // We'll call the Rembg::process after we created the image resource and applied EXIF rotation.
 
             $imageResource = $imageHandler->createFromImage($filename_tmp);
             if (!$imageResource instanceof \GdImage) {
@@ -79,11 +86,72 @@ if (isset($_FILES['images'])) {
                     throw new \Exception('Error rotating image resource.');
                 }
             }
+            // Apply rembg service (HTTP) if enabled in config
+            if (!empty($config['rembg']['enabled'])) {
+                $varsR = [
+                    'isCollage' => false,
+                    'isChroma' => false,
+                    'tmpFile' => $filename_tmp,
+                    'fileName' => $imageNewName,
+                ];
+                try {
+                    [$imageHandler, $imageResource] = Rembg::process($imageHandler, $varsR, $config['rembg'], $imageResource);
+                    $imageHandler->imageModified = true;
+                } catch (\Exception $e) {
+                    $logger->error('rembg service failed: ' . $e->getMessage());
+                }
+            }
+
             $thumb_size = intval(substr($config['picture']['thumb_size'], 0, -2));
             $thumbResource = $imageHandler->resizeImage($imageResource, $thumb_size);
             if (!$thumbResource instanceof \GdImage) {
                 throw new \Exception('Error creating thumb resource.');
             }
+            // Burn a simple banner with text into the thumbnail so it is visible across browsers
+            try {
+                $thumbW = imagesx($thumbResource);
+                $thumbH = imagesy($thumbResource);
+                // banner height as percentage of thumb height
+                $bannerH = max(18, intval($thumbH * 0.12));
+                // place banner approx. in the upper third of the thumbnail
+                $bannerY = intval($thumbH / 3) - intval($bannerH / 2);
+                if ($bannerY < 0) {
+                    $bannerY = 0;
+                }
+
+                // semi-transparent black rectangle limited to banner height
+                $alpha = 60; // 0 (opaque) .. 127 (transparent)
+                $rectColor = imagecolorallocatealpha($thumbResource, 0, 0, 0, $alpha);
+                $rectBottom = $bannerY + $bannerH;
+                if ($rectBottom > $thumbH) {
+                    $rectBottom = $thumbH;
+                }
+                imagefilledrectangle($thumbResource, 0, $bannerY, $thumbW, $rectBottom, $rectColor);
+
+                // text settings
+                $text = $config['picture']['thumb_banner_text'];
+                $angle = 0;
+                // try to find a nice TTF font shipped with the app
+                $fontPath = \Photobooth\Utility\FontUtility::getFontPath('GreatVibes-Regular.ttf');
+                if ($fontPath && is_readable($fontPath)) {
+                    // choose font size relative to width
+                    $fontSize = max(12, intval($thumbW * 0.08));
+                    $bbox = @imagettfbbox($fontSize, $angle, $fontPath, $text);
+                    if ($bbox !== false) {
+                        $textW = abs($bbox[2] - $bbox[0]);
+                        $textH = abs($bbox[7] - $bbox[1]);
+                        $textX = intval(($thumbW - $textW) / 2);
+                        // position baseline vertically centered inside the banner
+                        $textY = $bannerY + intval(($bannerH + $textH) / 2);
+                        $textColor = imagecolorallocate($thumbResource, 255, 255, 255);
+                        imagettftext($thumbResource, $fontSize, $angle, $textX, $textY, $textColor, $fontPath, $text);
+                    }
+                }
+            } catch (\Throwable $e) {
+                // don't block thumbnail creation on banner errors
+                $logger->debug('Thumbnail banner failed: ' . $e->getMessage());
+            }
+
             $imageHandler->jpegQuality = $config['jpeg_quality']['thumb'];
             if (!$imageHandler->saveJpeg($thumbResource, $filename_thumb)) {
                 $imageHandler->addErrorData('Warning: Failed to create thumbnail.');
@@ -117,6 +185,18 @@ if (isset($_FILES['images'])) {
             }
             if ($config['database']['enabled']) {
                 $database->appendContentToDB($imageNewName);
+                try {
+                    $database->setOwnerForFile($imageNewName, session_id());
+                } catch (\Exception $e) {
+                    $logger->debug('Could not set owner for file: ' . $e->getMessage());
+                }
+            }
+
+            // add public preview URL for client-side display
+            try {
+                $previews[] = PathUtility::getPublicPath($filename_photo);
+            } catch (\Exception $e) {
+                $logger->debug('Could not build public preview path: ' . $e->getMessage());
             }
         }
     } catch (\Exception $e) {
@@ -130,7 +210,8 @@ if (isset($_FILES['images'])) {
     }
     echo json_encode([
             'success' => true,
-            'message' => 'File(s) successfully uploaded and proceeded.'
+            'message' => 'File(s) successfully uploaded and proceeded.',
+            'previews' => $previews,
         ]);
     exit();
 }

@@ -1,5 +1,7 @@
 <?php
 
+ob_start();
+
 require_once 'lib/boot.php';
 
 use Photobooth\Service\ApplicationService;
@@ -117,5 +119,7 @@ if ($config['ui']['selfie_mode']) {
     })();
 </script>
 <?php endif; ?>
+
+<?php ob_end_flush(); ?>
 </body>
 </html>

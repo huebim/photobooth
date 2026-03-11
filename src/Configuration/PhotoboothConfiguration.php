@@ -35,6 +35,7 @@ use Photobooth\Configuration\Section\QrConfiguration;
 use Photobooth\Configuration\Section\QualityConfiguration;
 use Photobooth\Configuration\Section\ReloadConfiguration;
 use Photobooth\Configuration\Section\RembgConfiguration;
+use Photobooth\Configuration\Section\AutoDeleteConfiguration;
 use Photobooth\Configuration\Section\RemoteBuzzerConfiguration;
 use Photobooth\Configuration\Section\SlideshowConfiguration;
 use Photobooth\Configuration\Section\SoundConfiguration;
@@ -106,6 +107,7 @@ class PhotoboothConfiguration implements ConfigurationInterface
                 ->append(MailConfiguration::getNode())
                 ->append(SoundConfiguration::getNode())
                 ->append(RembgConfiguration::getNode())
+                ->append(AutoDeleteConfiguration::getNode())
                 ->append(ThemeConfiguration::getNode())
             ->end();
 

@@ -13,12 +13,14 @@ class DatabaseManagerService
 {
     public string $databaseFile = '';
     public string $imageDirectory = '';
+    private string $ownersFile = '';
 
     public function __construct()
     {
         $config = ConfigurationService::getInstance()->getConfiguration();
         $this->databaseFile = FolderEnum::DATA->absolute() . DIRECTORY_SEPARATOR . $config['database']['file'] . '.txt';
         $this->imageDirectory = FolderEnum::IMAGES->absolute();
+        $this->ownersFile = FolderEnum::DATA->absolute() . DIRECTORY_SEPARATOR . 'db_owners.json';
     }
 
     /**
@@ -52,6 +54,64 @@ class DatabaseManagerService
         }
 
         return [];
+    }
+
+    /**
+     * Returns database content filtered by session owner if provided.
+     * If $sessionId is null, returns the full list.
+     */
+    public function getContentFromDBForSession(?string $sessionId): array
+    {
+        $all = $this->getContentFromDB();
+        if ($sessionId === null || $sessionId === '') {
+            return $all;
+        }
+        $owners = $this->getOwnersMap();
+        $filtered = [];
+        foreach ($all as $file) {
+            if (isset($owners[$file]) && $owners[$file] === $sessionId) {
+                $filtered[] = $file;
+            }
+        }
+        return $filtered;
+    }
+
+    /**
+     * Set the owner (session id) for a filename.
+     */
+    public function setOwnerForFile(string $filename, string $sessionId): void
+    {
+        if (!$filename) {
+            throw new \Exception('Invalid filename.');
+        }
+        $owners = $this->getOwnersMap();
+        $owners[$filename] = $sessionId;
+        $encoded = json_encode($owners);
+        if ($encoded === false) {
+            throw new \Exception('Failed to encode owners map: ' . json_last_error_msg());
+        }
+        if (file_put_contents($this->ownersFile, $encoded) === false) {
+            throw new \Exception('Failed to write owners file: ' . $this->ownersFile);
+        }
+    }
+
+    /**
+     * Read owners map from disk.
+     */
+    public function getOwnersMap(): array
+    {
+        if (!file_exists($this->ownersFile)) {
+            return [];
+        }
+        $data = file_get_contents($this->ownersFile);
+        if ($data === false || $data === '') {
+            return [];
+        }
+        $decoded = json_decode($data, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return [];
+        }
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**
@@ -228,6 +288,77 @@ class DatabaseManagerService
         } catch (\Exception $e) {
             return 'error';
         }
+    }
+
+    /**
+     * Delete files older than given TTL (in minutes) from images and thumbs and remove DB entries.
+     * Returns array with deleted filenames.
+     *
+     * @param int $ttlMinutes
+     * @return array
+     */
+    public function cleanOldFiles(int $ttlMinutes): array
+    {
+        $deleted = [];
+        if ($ttlMinutes <= 0) {
+            return $deleted;
+        }
+
+        $now = time();
+        $threshold = $now - ($ttlMinutes * 60);
+
+        $files = $this->getContentFromDB();
+        // get excluded files from config (do not delete these)
+        $config = \Photobooth\Service\ConfigurationService::getInstance()->getConfiguration();
+        $excluded = [];
+        if (isset($config['auto_delete']['excluded_files']) && is_array($config['auto_delete']['excluded_files'])) {
+            $excluded = $config['auto_delete']['excluded_files'];
+        }
+        foreach ($files as $file) {
+            try {
+                // skip excluded files
+                if (in_array($file, $excluded, true)) {
+                    continue;
+                }
+                $imagePath = $this->imageDirectory . DIRECTORY_SEPARATOR . $file;
+                $thumbPath = FolderEnum::THUMBS->absolute() . DIRECTORY_SEPARATOR . $file;
+
+                $mtime = null;
+                if (file_exists($imagePath)) {
+                    $mtime = filemtime($imagePath);
+                } elseif (file_exists($thumbPath)) {
+                    $mtime = filemtime($thumbPath);
+                }
+
+                if ($mtime !== null && $mtime <= $threshold) {
+                    // attempt to delete image
+                    if (file_exists($imagePath) && is_writable($imagePath)) {
+                        @unlink($imagePath);
+                    }
+                    // attempt to delete thumb
+                    if (file_exists($thumbPath) && is_writable($thumbPath)) {
+                        @unlink($thumbPath);
+                    }
+                    // remove from DB and owners
+                    try {
+                        $this->deleteContentFromDB($file);
+                    } catch (\Exception $e) {
+                        // ignore
+                    }
+                    // remove owner mapping
+                    $owners = $this->getOwnersMap();
+                    if (isset($owners[$file])) {
+                        unset($owners[$file]);
+                        @file_put_contents($this->ownersFile, json_encode($owners));
+                    }
+                    $deleted[] = $file;
+                }
+            } catch (\Exception $e) {
+                // ignore individual errors and continue
+            }
+        }
+
+        return $deleted;
     }
 
     public static function getInstance(): self

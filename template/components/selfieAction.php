@@ -25,13 +25,15 @@ echo '            <span class="button--label">' . $languageService->translate('a
 echo '        </button>';
 echo '        <input type="file" name="images[]" id="images" accept="image/*" capture="camera" style="display: none;" required>';
 echo '    </form>';
+// Only show the gallery button to local requests (host machine)
+$remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+if ($config['gallery']['enabled'] && in_array($remoteAddr, ['127.0.0.1', '::1'])) {
+    echo ComponentUtility::renderButton('gallery', $config['icons']['gallery'], 'gallery-button');
+}
 echo '</div>';
 
 if ($config['button']['reload']) {
     echo ComponentUtility::renderButton('reload', $config['icons']['refresh'], 'reload');
-}
-if ($config['gallery']['enabled']) {
-    echo ComponentUtility::renderButton('gallery', $config['icons']['gallery'], 'gallery-button');
 }
 if ($config['button']['show_cups']) {
     echo ComponentUtility::renderButton('cups', $config['icons']['cups'], 'cups-button');
